@@ -60,7 +60,8 @@ Installing the application on a Yubikey Neo
 Supposing you're already familiar with applet installation procedures, 
 
    * Switch the Yubikey Neo to CCID mode
-   * Delete the default NFC Forum Tag application d2760000850101 - WARNING by doing so you'll lose the ability to generate OTP codes with the Yubikey Neo on the contactless interface, as the default application cannot be reinstalled 
+   * If you plan to test on a smartphone which does not support Mifare Classic (Broadcom NFC chipset), apply this patch to avoid any issue http://forum.yubico.com/viewtopic.php?p=3914#p3914
+   * Delete the default NFC Forum Tag application d2760000850101 - WARNING by doing so you'll lose the ability to generate OTP codes with the Yubikey Neo on the contactless interface, as the default application cannot be reinstalled. If you want to keep it, you can skip this part, install the application with a different AID, and have a third party smartphone application query the tag.
    * Load the CAP file, package AID FF425443484950
    * Install the main application FF42544348495001 using the default instance AID, no specific parameters
    * Install the NFC Forum Tag application FF42544348495002 using the standard NFC Forum instance AID d2760000850101, no specific parameters
