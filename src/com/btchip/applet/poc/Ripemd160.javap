@@ -28,133 +28,139 @@ import javacard.framework.Util;
  * @author BTChip
  *
  */
+
+    #define decl(varname) \
+      short varname ## HIGH = (short)0, varname ## LOW = (short)0
+
+    #define declAdd() \
+      short addX, addY, addLow, addCarry
+
+    #define declRotate() \
+      short rotH, rotL, rotMsk, rotSl, rotSh
+
+    #define set(variable, a, b) \
+      variable ## HIGH = (short)a; variable ## LOW = (short)b
+
+    #define copy(variableTarget, variableSource) \
+      variableTarget ## HIGH = variableSource ## HIGH; variableTarget ## LOW = variableSource ## LOW
+   
+    #define xor(variableTarget, variableSource) \
+      variableTarget ## HIGH ^= variableSource ## HIGH; variableTarget ## LOW ^= variableSource ## LOW
+
+    #define or(variableTarget, variableSource) \
+      variableTarget ## HIGH |= variableSource ## HIGH; variableTarget ## LOW |= variableSource ## LOW
+
+    #define and(variableTarget, variableSource) \
+      variableTarget ## HIGH &= variableSource ## HIGH; variableTarget ## LOW &= variableSource ## LOW
+    
+    #define neg(variable) \
+      variable ## HIGH = (short)(~variable ## HIGH); variable ## LOW = (short)(~variable ## LOW)
+
+    #define addDirect(variable, high, low) \
+      addX = variable ## LOW; \
+      addY = low; \
+      addLow = (short)(addX + addY); \
+      addCarry = (short) ((((addX & addY) | (addX & ~addY & ~addLow) | (~addX & addY & ~addLow)) >>> 15) & 1); \
+      variable ## HIGH += addCarry; \
+      variable ## LOW = addLow; \
+      variable ## HIGH += high            
+
+    #define add(variableTarget, variableSource) \
+      addDirect(variableTarget, variableSource ## HIGH, variableSource ## LOW)
+
+    #define rotate(variableTarget, rot) \
+        rotMsk = mask[rot]; \
+        rotH = variableTarget ## HIGH; \
+        rotL = variableTarget ## LOW; \
+        rotSh = (short) (rotMsk & ((short) (rotH >>> ((short)(16-rot))))); \
+        rotSl = (short) (rotMsk & ((short) (rotL  >>> ((short)(16-rot))))); \
+        variableTarget ## HIGH = (short) ((rotH<<(short)rot) | rotSl); \
+        variableTarget ## LOW  = (short) ((rotL<<(short)rot) | rotSh)            
+
+    #define copyVar(variable, target, targetOffset) \
+        target[targetOffset++] = (byte)(variable ## LOW); \
+        target[targetOffset++] = (byte)(variable ## LOW >>> 8); \
+        target[targetOffset++] = (byte)(variable ## HIGH); \
+        target[targetOffset++] = (byte)(variable ## HIGH >>> 8)
+
+    #define getX(index) \
+        switch(index) { \
+            case 0 : XLOW = X0LOW; XHIGH = X0HIGH; break; \
+            case 1 : XLOW = X1LOW; XHIGH = X1HIGH; break; \
+            case 2 : XLOW = X2LOW; XHIGH = X2HIGH; break; \
+            case 3 : XLOW = X3LOW; XHIGH = X3HIGH; break; \
+            case 4 : XLOW = X4LOW; XHIGH = X4HIGH; break; \
+            case 5 : XLOW = X5LOW; XHIGH = X5HIGH; break; \
+            case 6 : XLOW = X6LOW; XHIGH = X6HIGH; break; \
+            case 7 : XLOW = X7LOW; XHIGH = X7HIGH; break; \
+            case 8 : XLOW = X8LOW; XHIGH = X8HIGH; break; \
+            case 9 : XLOW = X9LOW; XHIGH = X9HIGH; break; \
+            case 10 : XLOW = X10LOW; XHIGH = X10HIGH; break; \
+            case 11 : XLOW = X11LOW; XHIGH = X11HIGH; break; \
+            case 12 : XLOW = X12LOW; XHIGH = X12HIGH; break; \
+            case 13 : XLOW = X13LOW; XHIGH = X13HIGH; break; \
+            case 14 : XLOW = X14LOW; XHIGH = X14HIGH; break; \
+            case 15 : XLOW = X15LOW; XHIGH = X15HIGH; break; \
+        }
+ 
 public class Ripemd160 {
     
     public static void init() {
         scratch = JCSystem.makeTransientByteArray((short)BLOCK_SIZE, JCSystem.CLEAR_ON_DESELECT);
-        data = JCSystem.makeTransientShortArray(DATA_SIZE, JCSystem.CLEAR_ON_DESELECT);
     }
-    
-    private static void set(short offset, short a, short b) {
-        data[offset] = a;
-        data[(short)(offset + 1)] = b;
-    }
-    
-    private static void copy(short offsetSrc, short offset2) {
-        data[offsetSrc] = data[offset2];
-        data[(short)(offsetSrc + 1)] = data[(short)(offset2 + 1)];
-    }
-    
-    private static void set(short offset, short value) {
-        data[offset] = 0;
-        data[(short)(offset + 1)] = value;
-    }
-    
-    private static void xor(short offsetSrc, short offset2) {
-        data[offsetSrc] ^= data[offset2];
-        data[(short)(offsetSrc + 1)] ^= data[(short)(offset2 + 1)];
-    }
-    
-    private static void or(short offsetSrc, short offset2) {
-        data[offsetSrc] |= data[offset2];
-        data[(short)(offsetSrc + 1)] |= data[(short)(offset2 + 1)];
-    }
-    
-    private static void and(short offsetSrc, short offset2) {
-        data[offsetSrc] &= data[offset2];
-        data[(short)(offsetSrc + 1)] &= data[(short)(offset2 + 1)];
-    }
-    
-    private static void neg(short offset) {
-        data[offset] = (short)(~data[offset]);
-        data[(short)(offset + 1)] = (short)(~data[(short)(offset + 1)]);
-    }
-    
-    private static void add(short offsetSrc, short high, short low) {
-        short x = data[(short)(offsetSrc + 1)];        
-        short y = low;
-        short addLow = (short)(x + y);
-        short carry = (short) ((((x & y) | (x & ~y & ~addLow) | (~x & y & ~addLow)) >>> 15) & 1);
-        data[offsetSrc] += carry;
-        data[(short)(offsetSrc + 1)] = addLow;
-        data[offsetSrc] += high;
-    }
-    
-    private static void add(short offsetSrc, short offset2) {
-        add(offsetSrc, data[offset2], data[(short)(offset2 + 1)]);
-    }
-        
-    private static void rotate(short offset, short rot) {
-        short h,l;
-        short  msk;
-        short sl_rot, sh_rot;
-
-        //cache
-        msk = mask[rot];     
-        h = data[offset];
-        l = data[(short)(offset + 1)];
-
-        //grab rotated bits, play around cast and sign extension 
-        sh_rot = (short) (msk & ((short) (h >>> ((short)(16-rot)))));
-        sl_rot = (short) (msk & ((short) (l  >>> ((short)(16-rot)))));
-
-        //rotate
-        data[offset] = (short) ((h<<rot) | sl_rot);
-        data[(short)(offset + 1)]  = (short) ((l<<rot) | sh_rot);        
-      }            
-            
-    private static short copy(short offset, byte[] target, short targetOffset) {
-        short high = data[offset];
-        short low = data[(short)(offset + 1)];
-        target[targetOffset++] = (byte)low;
-        target[targetOffset++] = (byte)(low >>> 8);
-        target[targetOffset++] = (byte)high;
-        target[targetOffset++] = (byte)(high >>> 8);
-        return targetOffset;
-    }
-        
+                                
     public static void hash32(byte[] buffer, short offset, byte[] target, short targetOffset)
     {
       byte i;
-      set(Harray, (short)0x6745, (short)0x2301);
-      set((short)(Harray + 2), (short)0xEFCD, (short)0xAB89);
-      set((short)(Harray + 4), (short)0x98BA, (short)0xDCFE);
-      set((short)(Harray + 6), (short)0x1032, (short)0x5476);
-      set((short)(Harray + 8), (short)0xC3D2, (short)0xE1F0);
+      decl(H0); decl(H1); decl(H2); decl(H3); decl(H4);
+      decl(X0); decl(X1); decl(X2); decl(X3); decl(X4); decl(X5); decl(X6); decl(X7); decl(X8); decl(X9); decl(X10); decl(X11); decl(X12); decl(X13); decl(X14); decl(X15);
+      decl(X);
+      decl(A); decl(B); decl(C); decl(D); decl(E); decl(Ap); decl(Bp); decl(Cp); decl(Dp); decl(Ep); decl(T); decl(s); decl(tmp);
+      declAdd(); declRotate();
+      set(H0, 0x6745, 0x2301);
+      set(H1, 0xEFCD, 0xAB89);
+      set(H2, 0x98BA, 0xDCFE);
+      set(H3, 0x1032, 0x5476);
+      set(H4, 0xC3D2, 0xE1F0);
       Util.arrayCopyNonAtomic(buffer, offset, scratch, (short)0, (short)32);
       scratch[32] = (byte)0x80;
       scratch[64 - 7] = (byte)0x01;
-      transform(scratch, (short)0);
-      for (i=0; i<5; i++) {
-          targetOffset = copy((short)(Harray + 2 * i), target, targetOffset);
-      }
-    }    
-
-    protected static void transform(byte[] in, short offset)
-    {      
-      // TODO : fully inline for speedup
-      byte i;
       // encode 64 bytes from input block into an array of 16 unsigned integers
       for (i = 0; i < 16; i++) {
-        short low = (short)((in[offset++] & 0xff) | ((in[offset++] & 0xff) << 8));
-        short high = (short)((in[offset++] & 0xff) | ((in[offset++] & 0xff) << 8));
-        set((short)(Xarray + 2 * i), high, low);
-      }
-      
-      copy(A, Harray);
-      copy(Ap, Harray);
-      copy(B, (short)(Harray + 2));
-      copy(Bp, (short)(Harray + 2));
-      copy(C, (short)(Harray + 4));
-      copy(Cp, (short)(Harray + 4));
-      copy(D, (short)(Harray + 6));
-      copy(Dp, (short)(Harray + 6));
-      copy(E, (short)(Harray + 8));
-      copy(Ep, (short)(Harray + 8));
-                  
+        short low = (short)((scratch[offset++] & 0xff) | ((scratch[offset++] & 0xff) << 8));
+        short high = (short)((scratch[offset++] & 0xff) | ((scratch[offset++] & 0xff) << 8));
+        switch(i) {
+            case 0: set(X0, high, low); break;
+            case 1: set(X1, high, low); break;
+            case 2: set(X2, high, low); break;
+            case 3: set(X3, high, low); break;
+            case 4: set(X4, high, low); break;
+            case 5: set(X5, high, low); break;
+            case 6: set(X6, high, low); break;
+            case 7: set(X7, high, low); break;
+            case 8: set(X8, high, low); break;
+            case 9: set(X9, high, low); break;
+            case 10: set(X10, high, low); break;
+            case 11: set(X11, high, low); break;
+            case 12: set(X12, high, low); break;
+            case 13: set(X13, high, low); break;            
+            case 14: set(X14, high, low); break;
+            case 15: set(X15, high, low); break;            
+        }
+      }      
+      copy(A, H0);
+      copy(Ap, H0);
+      copy(B, H1);
+      copy(Bp, H1);
+      copy(C, H2);
+      copy(Cp, H2);
+      copy(D, H3);
+      copy(Dp, H3);
+      copy(E, H4);
+      copy(Ep, H4);                  
       for (i = 0; i < 80; i++) // rounds 0...15
         {
-          set(s, S[i]);          
+          set(s, 0, S[i]);          
           switch(i >> 4) {
               case 0:
                   //T = A + (B ^ C ^ D) + X[i];
@@ -162,7 +168,8 @@ public class Ripemd160 {
                   xor(T, C);
                   xor(T, D);
                   add(T, A);
-                  add(T, (short)(Xarray + 2 * i));                  
+                  getX(i);
+                  add(T, X);                  
                   break;
               case 1:
                   copy(T, B);
@@ -172,8 +179,9 @@ public class Ripemd160 {
                   and(tmp, D);
                   or(T, tmp);
                   add(T, A);
-                  add(T, (short)(Xarray + 2 * R[i]));
-                  add(T, (short)0x5A82, (short)0x7999);
+                  getX(R[i]);
+                  add(T, X);
+                  addDirect(T, (short)0x5A82, (short)0x7999);
                   //T = A + ((B & C) | (~B & D)) + X[R[i]] + 0x5A827999;
                   break;
               case 2:
@@ -182,8 +190,9 @@ public class Ripemd160 {
                   or(T, B);
                   xor(T, D);
                   add(T, A);
-                  add(T, (short)(Xarray + 2 * R[i]));
-                  add(T, (short)0x6ED9, (short)0xEBA1);
+                  getX(R[i]);
+                  add(T, X);
+                  addDirect(T, (short)0x6ED9, (short)0xEBA1);
                   //T = A + ((B | ~C) ^ D) + X[R[i]] + 0x6ED9EBA1;
                   break;
               case 3:
@@ -194,8 +203,9 @@ public class Ripemd160 {
                   and(tmp, C);
                   or(T, tmp);
                   add(T, A);
-                  add(T, (short)(Xarray + 2 * R[i]));
-                  add(T, (short)0x8F1B, (short)0xBCDC);
+                  getX(R[i]);
+                  add(T, X);
+                  addDirect(T, (short)0x8F1B, (short)0xBCDC);
                   //T = A + ((B & D) | (C & ~D)) + X[R[i]] + 0x8F1BBCDC;
                   break;
               case 4:
@@ -204,8 +214,9 @@ public class Ripemd160 {
                   or(T, C);
                   xor(T, B);
                   add(T, A);
-                  add(T, (short)(Xarray + 2 * R[i]));
-                  add(T, (short)0xA953, (short)0xFD4E);
+                  getX(R[i]);
+                  add(T, X);
+                  addDirect(T, (short)0xA953, (short)0xFD4E);
                   //T = A + (B ^ (C | ~D)) + X[R[i]] + 0xA953FD4E;
                   break;
           }
@@ -215,7 +226,7 @@ public class Ripemd160 {
           rotate(D, (short)10);
           copy(C, B);
           copy(B, T);
-          rotate(B, data[(short)(s + 1)]);
+          rotate(B, sLOW);
           add(B, A);
           /*
           A = E;
@@ -224,7 +235,7 @@ public class Ripemd160 {
           C = B;
           B = (T << s | T >>> (32 - s)) + A;
           */
-          set(s, Sp[i]);
+          set(s, 0, Sp[i]);
           switch(i >> 4) {
               case 0:
                   copy(T, Dp);
@@ -232,8 +243,9 @@ public class Ripemd160 {
                   or(T, Cp);
                   xor(T, Bp);
                   add(T, Ap);
-                  add(T, (short)(Xarray + 2 * Rp[i]));
-                  add(T, (short)0x50A2, (short)0x8BE6);
+                  getX(Rp[i]);
+                  add(T, X);
+                  addDirect(T, (short)0x50A2, (short)0x8BE6);
                   //T = Ap + (Bp ^ (Cp | ~Dp)) + X[Rp[i]] + 0x50A28BE6;
                   break;
               case 1:
@@ -244,8 +256,9 @@ public class Ripemd160 {
                   and(tmp, Cp);
                   or(T, tmp);
                   add(T, Ap);
-                  add(T, (short)(Xarray + 2 * Rp[i]));
-                  add(T, (short)0x5C4D, (short)0xD124);
+                  getX(Rp[i]);
+                  add(T, X);
+                  addDirect(T, (short)0x5C4D, (short)0xD124);
                   //T = Ap + ((Bp & Dp) | (Cp & ~Dp)) + X[Rp[i]] + 0x5C4DD124;
                   break;
               case 2:
@@ -254,8 +267,9 @@ public class Ripemd160 {
                   or(T, Bp);
                   xor(T, Dp);
                   add(T, Ap);
-                  add(T, (short)(Xarray + 2 * Rp[i]));
-                  add(T, (short)0x6D70, (short)0x3EF3);
+                  getX(Rp[i]);
+                  add(T, X);
+                  addDirect(T, (short)0x6D70, (short)0x3EF3);
                   //T = Ap + ((Bp | ~Cp) ^ Dp) + X[Rp[i]] + 0x6D703EF3;
                   break;
               case 3:
@@ -266,8 +280,9 @@ public class Ripemd160 {
                   and(tmp, Dp);
                   or(T, tmp);
                   add(T, Ap);
-                  add(T, (short)(Xarray + 2 * Rp[i]));
-                  add(T, (short)0x7A6D, (short)0x76E9);
+                  getX(Rp[i]);
+                  add(T, X);
+                  addDirect(T, (short)0x7A6D, (short)0x76E9);
                   //T = Ap + ((Bp & Cp) | (~Bp & Dp)) + X[Rp[i]] + 0x7A6D76E9;
                   break;
               case 4:
@@ -275,7 +290,8 @@ public class Ripemd160 {
                   xor(T, Cp);
                   xor(T, Dp);
                   add(T, Ap);
-                  add(T, (short)(Xarray + 2 * Rp[i]));
+                  getX(Rp[i]);
+                  add(T, X);
                   //T = Ap + (Bp ^ Cp ^ Dp) + X[Rp[i]];
                   break;                                    
           }          
@@ -285,7 +301,7 @@ public class Ripemd160 {
           rotate(Dp, (short)10);
           copy(Cp, Bp);
           copy(Bp, T);
-          rotate(Bp, data[(short)(s + 1)]);
+          rotate(Bp, sLOW);
           add(Bp, Ap);
           /*
           Ap = Ep;
@@ -295,22 +311,22 @@ public class Ripemd160 {
           Bp = (T << s | T >>> (32 - s)) + Ap;
           */
       }
-      copy(T, (short)(Harray + 2));
+      copy(T, H1);
       add(T, C);
       add(T, Dp);
-      copy((short)(Harray + 2), (short)(Harray + 4));
-      add((short)(Harray + 2), D);
-      add((short)(Harray + 2), Ep);
-      copy((short)(Harray + 4), (short)(Harray + 6));
-      add((short)(Harray + 4), E);
-      add((short)(Harray + 4), Ap);
-      copy((short)(Harray + 6), (short)(Harray + 8));
-      add((short)(Harray + 6), A);
-      add((short)(Harray + 6), Bp);
-      copy((short)(Harray + 8), Harray);
-      add((short)(Harray + 8), B);
-      add((short)(Harray + 8), Cp);
-      copy(Harray, T);
+      copy(H1, H2);
+      add(H1, D);
+      add(H1, Ep);
+      copy(H2, H3);
+      add(H2, E);
+      add(H2, Ap);
+      copy(H3, H4);
+      add(H3, A);
+      add(H3, Bp);
+      copy(H4, H0);
+      add(H4, B);
+      add(H4, Cp);
+      copy(H0, T);
       /*
       T = h[1] + C + Dp;
       h[1] = h[2] + D + Ep;
@@ -318,9 +334,13 @@ public class Ripemd160 {
       h[3] = h[4] + A + Bp;
       h[4] = h[0] + B + Cp;
       h[0] = T;
-      */
-    } 
-    
+      */      
+      copyVar(H0, target, targetOffset);
+      copyVar(H1, target, targetOffset);
+      copyVar(H2, target, targetOffset);
+      copyVar(H3, target, targetOffset);
+      copyVar(H4, target, targetOffset);      
+    }        
     
     // selection of message word
     private static final short[] R = {
@@ -351,26 +371,7 @@ public class Ripemd160 {
          9,  7, 15, 11,  8,  6,  6, 14, 12, 13,  5, 14, 13, 13,  7,  5,
         15,  5,  8, 11, 14, 14,  6, 14,  6,  9, 12,  9, 12,  5, 15,  8,
          8,  5, 12,  9, 12,  5, 14,  6,  8, 13,  6,  5, 15, 13, 11, 11 };
-    
-    private static final short Harray = (short)0;
-    private static final short Xarray = (short)(Harray + 5 * 2);
-    private static final short A = (short)(Xarray + 16 * 2);
-    private static final short B = (short)(A + 2);
-    private static final short C = (short)(B + 2);
-    private static final short D = (short)(C + 2);
-    private static final short E = (short)(D + 2);
-    private static final short Ap = (short)(E + 2);
-    private static final short Bp = (short)(Ap + 2);
-    private static final short Cp = (short)(Bp + 2);
-    private static final short Dp = (short)(Cp + 2);
-    private static final short Ep = (short)(Dp + 2);
-    private static final short T = (short)(Ep + 2);
-    private static final short s = (short)(T + 2);
-    private static final short tmp = (short)(s + 2);
-    private static final short DATA_SIZE = (short)(tmp + 2);
-    
-    private static short[] data;
-    
+        
     private static byte[] scratch;
     
     private static final short[] mask = {
