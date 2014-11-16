@@ -27,7 +27,7 @@ When creating a transaction from your smartphone :
 APDU specification
 -------------------
 
-This application follows the BTChip specification available at https://btchip.github.io/btchip-doc/bitcoin-technical-1.4.2.html with the following large modifications (and other subtle smaller modifications that you'll be delighted to discover in the source code) : 
+This application follows the legacy BTChip specification available at https://btchip.github.io/btchip-doc/bitcoin-technical-1.4.2.html with the following large modifications (and other subtle smaller modifications that you'll be delighted to discover in the source code) : 
    * The only supported APDUs are
      * GENERATE KEYPAIR (with no authorized address, derivation or private key signature support)
      * IMPORT PRIVATE KEY (with restrictions described below)
@@ -46,7 +46,7 @@ This application follows the BTChip specification available at https://btchip.gi
    * A new GET CONTACTLESS LIMIT APDU is added to retrive the maximum cumulated output, maximum change amount, maximum fee amount enforced for a contactless transaction
    * A new key import method is used for IMPORT PRIVATE KEY and is the only one supported : prepare binary (P1 set to 20, masked with 80) which expects to receive the binary private key (32 bytes) followed by the binary public key component (65 bytes) as the Java Card API does not offer an API to work on the curve points 
    * The private key encoding format is different and includes the public key
-    
+
 
 Building the application
 -------------------------
