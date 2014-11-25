@@ -27,7 +27,7 @@ When creating a transaction from your smartphone :
 APDU specification
 -------------------
 
-This application follows the legacy BTChip specification available at https://btchip.github.io/btchip-doc/bitcoin-technical-1.4.2.html with the following large modifications (and other subtle smaller modifications that you'll be delighted to discover in the source code) : 
+This application follows the legacy BTChip specification available at https://ledgerhq.github.io/btchip-doc/bitcoin-technical-1.4.2.html with the following large modifications (and other subtle smaller modifications that you'll be delighted to discover in the source code) : 
    * The only supported APDUs are
      * GENERATE KEYPAIR (with no authorized address, derivation or private key signature support)
      * IMPORT PRIVATE KEY (with restrictions described below)
