@@ -1,7 +1,7 @@
 BTChip Java Card Bitcoin Hardware Wallet 
 ========================================
 
-*Note* This project is deprecated. Further development is done at https://github.com/LedgerHQ/ledger-javacard
+**Note** This project is deprecated. Further development is done at https://github.com/LedgerHQ/ledger-javacard
 
 The following project is a proof of concept implementation of a Bitcoin Hardware Wallet tested on a real world Java Card platform (JCOP 2.4.2 R3, found in the Yubikey Neo) with no strings attached (no vendor NDA necessary as only standard Java Card features are used), protected against malware using a second factor validation of the transactions based on the isolation of the contact and contactless communication interfaces.
 
