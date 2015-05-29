@@ -1,7 +1,7 @@
 /*
 *******************************************************************************    
-*   BTChip Bitcoin Hardware Wallet Java Card implementation
-*   (c) 2013 BTChip - 1BTChip7VfTnrPra5jqci7ejnMguuHogTn
+*   Java Card Bitcoin Hardware Wallet
+*   (c) 2015 Ledger
 *   
 *   This program is free software: you can redistribute it and/or modify
 *   it under the terms of the GNU Affero General Public License as
@@ -18,7 +18,7 @@
 *******************************************************************************   
 */    
 
-package com.btchip.applet.poc;
+package com.ledger.wallet;
 
 import javacard.framework.APDU;
 import javacard.framework.Applet;
@@ -32,9 +32,9 @@ import javacard.framework.Util;
  * @author BTChip
  *
  */
-public class BTChipNFCForumApplet extends Applet {
+public class LWNFCForumApplet extends Applet {
     
-    public BTChipNFCForumApplet() {
+    public LWNFCForumApplet() {
         scratch = JCSystem.makeTransientByteArray((short)1, JCSystem.CLEAR_ON_DESELECT);
         FILE_DATA = new byte[500];
         // Header initialization
@@ -46,7 +46,8 @@ public class BTChipNFCForumApplet extends Applet {
         FILE_DATA[offset++] = (byte)0x00;
         offset += (short)2;
         Util.arrayCopyNonAtomic(LANG, (short)0, FILE_DATA, offset, (short)LANG.length);                        
-        BTChipPocApplet.writeIdleText();   
+        LedgerWalletApplet.writeIdleText();
+        created = true;
     }
     
     public static void writeHeader(short textSize) {
@@ -58,7 +59,7 @@ public class BTChipNFCForumApplet extends Applet {
     
     @Override
     public boolean select() { // only grant access on the contactless interface
-       return (BTChipPocApplet.isContactless());      
+       return (LedgerWalletApplet.isContactless());      
     }
 
     @Override
@@ -113,9 +114,9 @@ public class BTChipNFCForumApplet extends Applet {
                 
         }       
     }
-    
+        
     public static void install (byte bArray[], short bOffset, byte bLength) throws ISOException {
-        new BTChipNFCForumApplet().register(bArray, (short)(bOffset + 1), bArray[bOffset]);
+        new LWNFCForumApplet().register(bArray, (short)(bOffset + 1), bArray[bOffset]);
     }
     
     public static final byte OFFSET_TEXT = (byte)15;
@@ -152,5 +153,7 @@ public class BTChipNFCForumApplet extends Applet {
     public static byte FILE_DATA[];
     
     private static byte scratch[];
+    protected static boolean erase;
+    protected static boolean created;
     
 }

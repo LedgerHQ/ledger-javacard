@@ -1,7 +1,7 @@
 /*
 *******************************************************************************    
-*   BTChip Bitcoin Hardware Wallet Java Card implementation
-*   (c) 2013 BTChip - 1BTChip7VfTnrPra5jqci7ejnMguuHogTn
+*   Java Card Bitcoin Hardware Wallet
+*   (c) 2015 Ledger
 *   
 *   This program is free software: you can redistribute it and/or modify
 *   it under the terms of the GNU Affero General Public License as
@@ -18,7 +18,7 @@
 *******************************************************************************   
 */    
 
-package com.btchip.applet.poc;
+package com.ledger.wallet;
 
 import javacard.framework.JCSystem;
 import javacard.framework.Util;
@@ -125,28 +125,24 @@ public class Transaction {
                     }
                     byte trustedInputKeyset = buffer[h[CURRENT]];
                     short trustedInputLength = (short)(buffer[(short)(h[CURRENT] + 1)] & 0xff);
-                    if (trustedInputLength > BTChipPocApplet.scratch255.length) {
+                    if (trustedInputLength > LedgerWalletApplet.scratch256.length) {
                         return RESULT_ERROR;
                     }
                     if (h[REMAINING] < (short)(2 + trustedInputLength)) {
                         return RESULT_ERROR;
                     }
-                    if (buffer[(short)(h[CURRENT] + 2)] != BTChipPocApplet.BLOB_MAGIC_TRUSTED_INPUT) {
+                    if (buffer[(short)(h[CURRENT] + 2)] != LedgerWalletApplet.BLOB_MAGIC_TRUSTED_INPUT) {
                         return RESULT_ERROR;
-                    }                                        
-                    WrappingKeyRepository.WrappingKey encryptionKey = WrappingKeyRepository.find(trustedInputKeyset, WrappingKeyRepository.ROLE_TRUSTED_INPUT_ENCRYPTION);
-                    if (encryptionKey == null) {
-                        return RESULT_ERROR;
-                    }
+                    }                          
                     // Check the "signature"
-                    encryptionKey.initCipher(true);
-                    Crypto.blobEncryptDecrypt.doFinal(buffer, (short)(h[CURRENT] + 2), (short)(trustedInputLength - 8), BTChipPocApplet.scratch255, (short)0);
-                    if (Util.arrayCompare(buffer, (short)(h[CURRENT] + 2 + trustedInputLength - 8), BTChipPocApplet.scratch255, (short)(trustedInputLength - 16), (short)8) != 0) {
+                    Crypto.initCipher(LedgerWalletApplet.trustedInputKey, true);                    
+                    Crypto.blobEncryptDecrypt.doFinal(buffer, (short)(h[CURRENT] + 2), (short)(trustedInputLength - 8), LedgerWalletApplet.scratch256, (short)0);
+                    if (Util.arrayCompare(buffer, (short)(h[CURRENT] + 2 + trustedInputLength - 8), LedgerWalletApplet.scratch256, (short)(trustedInputLength - 16), (short)8) != 0) {
                         return RESULT_ERROR;
                     }
                     // Update the amount
-                    Uint64Helper.swap(BTChipPocApplet.scratch255, (short)0, buffer, (short)(h[CURRENT] + 2 + 40)); 
-                    Uint64Helper.add(TC.ctx, TC.TX_A_TRANSACTION_AMOUNT, BTChipPocApplet.scratch255, (short)0);                    
+                    Uint64Helper.swap(LedgerWalletApplet.scratch256, (short)0, buffer, (short)(h[CURRENT] + 2 + 40)); 
+                    Uint64Helper.add(TC.ctx, TC.TX_A_TRANSACTION_AMOUNT, LedgerWalletApplet.scratch256, (short)0);                    
                     // Update the hash with prevout data
                     short savedCurrent = h[CURRENT];
                     short savedRemaining = h[REMAINING];
@@ -191,8 +187,8 @@ public class Transaction {
                     return RESULT_MORE;
                 }
                 consumeTransaction(buffer, dataAvailable);
-                Uint32Helper.setByte(BTChipPocApplet.scratch255, (short)0, (byte)dataAvailable);
-                Uint32Helper.sub(TC.ctx, TC.TX_I_SCRIPT_REMAINING, BTChipPocApplet.scratch255, (short)0);
+                Uint32Helper.setByte(LedgerWalletApplet.scratch256, (short)0, (byte)dataAvailable);
+                Uint32Helper.sub(TC.ctx, TC.TX_I_SCRIPT_REMAINING, LedgerWalletApplet.scratch256, (short)0);
             }
             if (TC.ctx[TC.TX_B_TRANSACTION_STATE] == STATE_INPUT_HASHING_DONE) {
                 if (parseMode == PARSE_SIGNATURE) {
@@ -256,8 +252,8 @@ public class Transaction {
                     return RESULT_MORE;
                 }
                 consumeTransaction(buffer, dataAvailable);
-                Uint32Helper.setByte(BTChipPocApplet.scratch255, (short)0, (byte)dataAvailable);
-                Uint32Helper.sub(TC.ctx, TC.TX_I_SCRIPT_REMAINING, BTChipPocApplet.scratch255, (short)0);
+                Uint32Helper.setByte(LedgerWalletApplet.scratch256, (short)0, (byte)dataAvailable);
+                Uint32Helper.sub(TC.ctx, TC.TX_I_SCRIPT_REMAINING, LedgerWalletApplet.scratch256, (short)0);
             }
             if (TC.ctx[TC.TX_B_TRANSACTION_STATE] == STATE_OUTPUT_HASHING_DONE) {
                 if (h[REMAINING] < (short)1) {

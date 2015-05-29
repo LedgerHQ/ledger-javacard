@@ -1,7 +1,7 @@
 /*
 *******************************************************************************    
-*   BTChip Bitcoin Hardware Wallet Java Card implementation
-*   (c) 2013 BTChip - 1BTChip7VfTnrPra5jqci7ejnMguuHogTn
+*   Java Card Bitcoin Hardware Wallet
+*   (c) 2015 Ledger
 *   
 *   This program is free software: you can redistribute it and/or modify
 *   it under the terms of the GNU Affero General Public License as
@@ -16,11 +16,9 @@
 *   You should have received a copy of the GNU Affero General Public License
 *   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 *******************************************************************************   
-*/
+*/    
 
-// TODO : Add storage of change address
-
-package com.btchip.applet.poc;
+package com.ledger.wallet;
 
 import javacard.framework.APDU;
 import javacard.framework.Applet;
@@ -30,46 +28,57 @@ import javacard.framework.ISOException;
 import javacard.framework.JCSystem;
 import javacard.framework.OwnerPIN;
 import javacard.framework.Util;
-import javacard.security.ECPrivateKey;
-import javacard.security.ECPublicKey;
-import javacard.security.KeyPair;
+import javacard.security.DESKey;
+import javacard.security.KeyBuilder;
 
 /**
  * Hardware Wallet applet
  * @author BTChip
  *
  */
-public class BTChipPocApplet extends Applet {
+public class LedgerWalletApplet extends Applet {
     
-    public BTChipPocApplet() {
+    public LedgerWalletApplet() {
         BCDUtils.init();
         TC.init();
         Crypto.init();
         Transaction.init();
+        Bip32Cache.init();
         limits = new byte[LIMIT_LAST];
-        scratch255 = JCSystem.makeTransientByteArray((short)255, JCSystem.CLEAR_ON_DESELECT);
+        scratch256 = JCSystem.makeTransientByteArray((short)256, JCSystem.CLEAR_ON_DESELECT);
         transactionPin = new OwnerPIN(TRANSACTION_PIN_ATTEMPTS, TRANSACTION_PIN_SIZE);
-        walletPin = new OwnerPIN(WALLET_PIN_ATTEMPTS, WALLET_PIN_SIZE);
+        walletPin = new OwnerPIN(WALLET_PIN_ATTEMPTS, WALLET_PIN_SIZE);        
+        secondaryPin = new OwnerPIN(SECONDARY_PIN_ATTEMPTS, SECONDARY_PIN_SIZE);
+        masterDerived = new byte[64];
+        chipKey = (DESKey)KeyBuilder.buildKey(KeyBuilder.TYPE_DES, KeyBuilder.LENGTH_DES3_2KEY, false);
+        trustedInputKey = (DESKey)KeyBuilder.buildKey(KeyBuilder.TYPE_DES, KeyBuilder.LENGTH_DES3_2KEY, false);
+        developerKey = (DESKey)KeyBuilder.buildKey(KeyBuilder.TYPE_DES, KeyBuilder.LENGTH_DES3_2KEY, false);
+        Crypto.random.generateData(scratch256, (short)0, (short)16);
+        chipKey.setKey(scratch256, (short)0);
         TC.ctxP[TC.P_TX_Z_USED] = TC.FALSE;
         setup = TC.FALSE;
         limitsSet = TC.FALSE;
+        //proprietaryAPI = new JCOPProprietaryAPI();
     }
     
     protected static void writeIdleText() {
-        short offset = Util.arrayCopyNonAtomic(TEXT_IDLE, (short)0, BTChipNFCForumApplet.FILE_DATA, BTChipNFCForumApplet.OFFSET_TEXT, (short)TEXT_IDLE.length);
-        BTChipNFCForumApplet.writeHeader((short)(offset - BTChipNFCForumApplet.OFFSET_TEXT));
+        short offset = Util.arrayCopyNonAtomic(TEXT_IDLE, (short)0, LWNFCForumApplet.FILE_DATA, LWNFCForumApplet.OFFSET_TEXT, (short)TEXT_IDLE.length);
+        LWNFCForumApplet.writeHeader((short)(offset - LWNFCForumApplet.OFFSET_TEXT));
     }
     
     protected static boolean isContactless() {
         return ((APDU.getProtocol() & APDU.PROTOCOL_MEDIA_MASK) == APDU.PROTOCOL_MEDIA_CONTACTLESS_TYPE_A);                
     }
     
-    private static void checkAccess() {
+    private static void checkAccess(boolean checkPinContactless) {
         if ((setup == TC.FALSE) || (setup != TC.TRUE)) {
             ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
         if (!isContactless() && !walletPin.isValidated()) {
             ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);            
+        }
+        if (checkPinContactless && !walletPin.isValidated()) {
+        	ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
     }
     
@@ -148,89 +157,71 @@ public class BTChipPocApplet extends Applet {
             ISOException.throwIt(ISO7816.SW_WRONG_DATA);                
         }        
     }
-        
-    private static void handleGenerate(APDU apdu) throws ISOException {
-        byte[] buffer = apdu.getBuffer();
-        byte p1 = buffer[ISO7816.OFFSET_P1];
-        byte p2 = buffer[ISO7816.OFFSET_P2];
-        short offset = ISO7816.OFFSET_CDATA;
-        short scratchOffset = (short)0;
-        ECPublicKey publicKey = null;
-        short publicKeyOffset = (short)0;
-        boolean prepare = ((p1 & P1_GENERATE_PREPARE) != 0);
-        apdu.setIncomingAndReceive();
-        // PoC only supports generate + import, and does not generate integrity data or authorized addresses
-        // Also, generation is always done for main net when used for change
-        if (prepare) {
-            if (((p1 & P1_GENERATE_PREPARE_DERIVE) != 0) ||
-                ((p1 & P1_GENERATE_PREPARE_HASH) != 0) ||
-                ((p1 & P1_GENERATE_PREPARE_UID) != 0) ||
-                ((p1 & P1_GENERATE_PROVIDE_AUTHORIZED_KEY) != 0) ||
-                ((p1 & P1_GENERATE_PREPARE_BASE58) != 0) ||
-                ((p1 & P1_GENERATE_PREPARE_BIN) == 0)) {
-                ISOException.throwIt(ISO7816.SW_FUNC_NOT_SUPPORTED);
-            }
+
+    // Compressed public key in scratch256, 0
+    private static short publicKeyToAddress(byte[] out, short outOffset) {
+    	Crypto.digestScratch.doFinal(scratch256, (short)0, (short)33, scratch256, (short)33);    	
+    	if (Crypto.digestRipemd != null) {
+    		Crypto.digestRipemd.doFinal(scratch256, (short)33, (short)32, scratch256, (short)1);
+    	}
+    	else {
+    		Ripemd160.hash32(scratch256, (short)33, scratch256, (short)1, scratch256, (short)100);
+    	}
+    	scratch256[0] = stdVersion;
+    	Crypto.digestScratch.doFinal(scratch256, (short)0, (short)21, scratch256, (short)21);
+    	Crypto.digestScratch.doFinal(scratch256, (short)21, (short)32, scratch256, (short)21);
+    	return Base58.encode(scratch256, (short)0, (short)25, out, outOffset, scratch256, (short)100);
+    }
+    
+    private static void handleGetWalletPublicKey(APDU apdu) throws ISOException {
+    	byte[] buffer = apdu.getBuffer();
+    	short offset = ISO7816.OFFSET_CDATA;
+    	byte derivationSize = buffer[offset++];
+    	byte i;
+    	if (derivationSize > MAX_DERIVATION_PATH) {
+    		ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+    	}
+    	// Unwrap the initial seed
+        Crypto.initCipher(chipKey, false);
+        Crypto.blobEncryptDecrypt.doFinal(masterDerived, (short)0, (short)DEFAULT_SEED_LENGTH, scratch256, (short)0);
+        // Derive all components
+        i = Bip32Cache.copyPrivateBest(buffer, (short)(ISO7816.OFFSET_CDATA + 1), derivationSize, scratch256, (short)0);
+        for (; i<derivationSize; i++) {
+        	Util.arrayCopyNonAtomic(buffer, (short)(offset + 4 * i), scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
+        	if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
+        		if (!Bip32Cache.setPublicIndex(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1))) {
+        			ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
+        		}
+        	}
+        	Bip32.derive(buffer);
+        	Bip32Cache.storePrivate(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1), scratch256);
         }
-        WrappingKeyRepository.WrappingKey encryptionKey = WrappingKeyRepository.find(buffer[offset++], WrappingKeyRepository.ROLE_PRIVATE_KEY_ENCRYPTION);
-        if (encryptionKey == null) {
-            ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        if (proprietaryAPI == null) {
+    		if (!Bip32Cache.setPublicIndex(buffer, offset, derivationSize)) {
+    			ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
+    		}        	
         }
-        // Drop signature keyset
-        offset++;
-        // Drop flags
-        offset++;
-        // Drop curve ID
-        offset += 2;
-        // Prepare the private key blob
-        scratch255[scratchOffset++] = BLOB_MAGIC_PRIVATE_KEY_WITH_PUB;
-        scratch255[scratchOffset++] = (byte)0x00; // flags RFU
-        // skip curve ID
-        scratchOffset += 2;
-        // skip CRC
-        scratchOffset += 2;
-        Crypto.random.generateData(scratch255, scratchOffset, (short)2); // nonce
-        scratchOffset += 2;        
-        // If importing, decode
-        if (prepare) {            
-            publicKeyOffset = (short)(offset + PRIVATE_KEY_S_LENGTH);
-            Util.arrayCopyNonAtomic(buffer, offset, scratch255, scratchOffset, (short)(PRIVATE_KEY_S_LENGTH + PUBLIC_KEY_W_LENGTH));
-            scratchOffset += (PRIVATE_KEY_S_LENGTH + PUBLIC_KEY_W_LENGTH);
-        }
-        else {
-            // Otherwise, generate
-            KeyPair keyPair = Crypto.generatePair();
-            ECPrivateKey privateKey = (ECPrivateKey)keyPair.getPrivate();
-            publicKey = (ECPublicKey)keyPair.getPublic();
-            privateKey.getS(scratch255, scratchOffset);
-            scratchOffset += 32;
-            // The component itself stays here to avoid stressing the flash even more
-            publicKey.getW(scratch255, scratchOffset);
-            scratchOffset += PUBLIC_KEY_W_LENGTH;
-        }
-        Crypto.random.generateData(scratch255, scratchOffset, (short)7); // nonce2
-        scratchOffset += 7;        
-        // Encrypt the blob ASAP
-        encryptionKey.initCipher(true);
-        Crypto.blobEncryptDecrypt.doFinal(scratch255, (short)0, scratchOffset, scratch255, (short)0);        
+        // Finally output
         offset = 0;
-        // Prepare the output
-        // Public key
-        buffer[offset++] = PUBLIC_KEY_W_LENGTH;
-        if (publicKey == null) {
-            Util.arrayCopyNonAtomic(buffer, publicKeyOffset, buffer, offset, PUBLIC_KEY_W_LENGTH);
+        buffer[offset++] = (short)65;
+        if (proprietaryAPI == null) {
+        	Bip32Cache.copyLastPublic(buffer, offset);
         }
         else {
-            publicKey.getW(buffer, offset);            
+        	proprietaryAPI.getUncompressedPublicPoint(scratch256, (short)0, buffer, offset);
         }
-        offset += PUBLIC_KEY_W_LENGTH;
-        // Blob
-        buffer[offset++] = (byte)scratchOffset;
-        Util.arrayCopyNonAtomic(scratch255, (short)0, buffer, offset, scratchOffset);
-        offset += scratchOffset;
-        // Derivation data and fake signature
-        Util.arrayFillNonAtomic(buffer, offset, (short)(32 + 8), (byte)0x00);
-        offset += (short)(32 + 8);
-        apdu.setOutgoingAndSend((short)0, offset);
+        // Save the chaincode
+        Util.arrayCopyNonAtomic(scratch256, (short)32, buffer, (short)200, (short)32);
+        // Get the encoded address
+        Util.arrayCopyNonAtomic(buffer, offset, scratch256, (short)0, (short)65);
+        AddressUtils.compressPublicKey(scratch256, (short)0);
+        offset += (short)65;
+        buffer[offset] = (byte)(publicKeyToAddress(buffer, (short)(offset + 1)) - (short)(offset + 1));
+        offset += (short)(buffer[offset] + 1);
+        // Add the chaincode
+        Util.arrayCopyNonAtomic(buffer, (short)200, buffer, offset, (short)32);
+        offset += 32;
+        apdu.setOutgoingAndSend((short)0, offset);            	
     }
     
     private static void handleTrustedInput(APDU apdu) throws ISOException {
@@ -239,17 +230,11 @@ public class BTChipPocApplet extends Applet {
         byte dataOffset = (short)0;
         apdu.setIncomingAndReceive();
         if (p1 == P1_TRUSTED_INPUT_FIRST) {
-            // Early check
-            WrappingKeyRepository.WrappingKey encryptionKey = WrappingKeyRepository.find(buffer[ISO7816.OFFSET_CDATA], WrappingKeyRepository.ROLE_TRUSTED_INPUT_ENCRYPTION);    
-            if (encryptionKey == null) {
-                ISOException.throwIt(ISO7816.SW_WRONG_DATA);
-            }
-            TC.ctx[TC.TX_B_TRUSTED_INPUT_KEYSET] = buffer[ISO7816.OFFSET_CDATA];
-            Util.arrayCopyNonAtomic(buffer, (short)(ISO7816.OFFSET_CDATA + 1), TC.ctx, TC.TX_I_TRANSACTION_TARGET_INPUT, TC.SIZEOF_U32);
+            Util.arrayCopyNonAtomic(buffer, ISO7816.OFFSET_CDATA, TC.ctx, TC.TX_I_TRANSACTION_TARGET_INPUT, TC.SIZEOF_U32);
             TC.ctx[TC.TX_B_TRANSACTION_STATE] = Transaction.STATE_NONE;
             TC.ctx[TC.TX_B_TRUSTED_INPUT_PROCESSED] = (byte)0x00;
             TC.ctx[TC.TX_B_HASH_OPTION] = Transaction.HASH_FULL;
-            dataOffset = 5;
+            dataOffset = (short)4;
         }
         else
         if (p1 != P1_TRUSTED_INPUT_NEXT) {
@@ -266,22 +251,21 @@ public class BTChipPocApplet extends Applet {
         }
         else
         if (result == Transaction.RESULT_FINISHED) {
-            WrappingKeyRepository.WrappingKey encryptionKey = WrappingKeyRepository.find(TC.ctx[TC.TX_B_TRUSTED_INPUT_KEYSET], WrappingKeyRepository.ROLE_TRUSTED_INPUT_ENCRYPTION);                
             short offset = 0;
             buffer[offset++] = BLOB_MAGIC_TRUSTED_INPUT;
             Crypto.random.generateData(buffer, offset, (short)3);
             offset += 3;            
-            Crypto.digestFull.doFinal(scratch255, (short)0, (short)0, scratch255, (short)0);
-            Crypto.digestFull.doFinal(scratch255, (short)0, (short)32, buffer, offset);
+            Crypto.digestFull.doFinal(scratch256, (short)0, (short)0, scratch256, (short)0);
+            Crypto.digestFull.doFinal(scratch256, (short)0, (short)32, buffer, offset);
             offset += 32;
             GenericBEHelper.swap(TC.SIZEOF_U32, buffer, offset, TC.ctx, TC.TX_I_TRANSACTION_TARGET_INPUT);
             offset += 4;
             Util.arrayCopyNonAtomic(TC.ctx, TC.TX_A_TRANSACTION_AMOUNT, buffer, offset, TC.SIZEOF_AMOUNT);
             offset += TC.SIZEOF_AMOUNT;
-            encryptionKey.initCipher(true);
+            Crypto.initCipher(trustedInputKey, true);
             // "sign", using the same cipher
-            Crypto.blobEncryptDecrypt.doFinal(buffer, (short)0, offset, scratch255, (short)0);
-            Util.arrayCopyNonAtomic(scratch255, (short)(offset - 8), buffer, offset, (short)8);
+            Crypto.blobEncryptDecrypt.doFinal(buffer, (short)0, offset, scratch256, (short)0);
+            Util.arrayCopyNonAtomic(scratch256, (short)(offset - 8), buffer, offset, (short)8);
             offset += 8;
             apdu.setOutgoingAndSend((short)0, offset);                       
         }
@@ -304,7 +288,7 @@ public class BTChipPocApplet extends Applet {
         }
         if (p2 == P2_HASH_TRANSACTION_NEW_INPUT) {
             if (p1 == P1_HASH_TRANSACTION_FIRST) {
-                checkAccess();
+                checkAccess(false);
                 if (isContactless() && (limitsSet != TC.TRUE)) {
                     ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
                 }
@@ -321,7 +305,6 @@ public class BTChipPocApplet extends Applet {
                 else {
                     Crypto.random.generateData(TC.ctx, TC.TX_A_AUTH_NONCE, TC.SIZEOF_NONCE);
                 }
-                dataOffset = (short)2;
             }
         }
         else
@@ -358,23 +341,22 @@ public class BTChipPocApplet extends Applet {
     }
     
     private static short writeAmount(short textOffset, short amountOffset, short addressOffset) {
-        textOffset = BCDUtils.hexAmountToDisplayable(TC.ctx, amountOffset, BTChipNFCForumApplet.FILE_DATA, textOffset);
-        BTChipNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;
-        textOffset = Util.arrayCopyNonAtomic(TEXT_BTC, (short)0, BTChipNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_BTC.length);
-        BTChipNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;                
-        textOffset = Util.arrayCopyNonAtomic(TEXT_TO, (short)0, BTChipNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_TO.length);
+        textOffset = BCDUtils.hexAmountToDisplayable(TC.ctx, amountOffset, LWNFCForumApplet.FILE_DATA, textOffset);
+        LWNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;
+        textOffset = Util.arrayCopyNonAtomic(TEXT_BTC, (short)0, LWNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_BTC.length);
+        LWNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;                
+        textOffset = Util.arrayCopyNonAtomic(TEXT_TO, (short)0, LWNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_TO.length);
         // Recompute the key checksum in place as an additional sanity check
-        Util.arrayCopyNonAtomic(TC.ctx, addressOffset, scratch255, (short)0, (short)(TC.SIZEOF_RIPEMD + 1));
-        Crypto.digestScratch.doFinal(scratch255, (short)0, (short)(TC.SIZEOF_RIPEMD + 1), scratch255, (short)(TC.SIZEOF_RIPEMD + 1));
-        Crypto.digestScratch.doFinal(scratch255, (short)(TC.SIZEOF_RIPEMD + 1), TC.SIZEOF_SHA256, scratch255, (short)(TC.SIZEOF_RIPEMD + 1));
-        textOffset = Base58.encode(scratch255, (short)0, (short)(TC.SIZEOF_RIPEMD + 1 + 4), BTChipNFCForumApplet.FILE_DATA, textOffset, scratch255, (short)100);
+        Util.arrayCopyNonAtomic(TC.ctx, addressOffset, scratch256, (short)0, (short)(TC.SIZEOF_RIPEMD + 1));
+        Crypto.digestScratch.doFinal(scratch256, (short)0, (short)(TC.SIZEOF_RIPEMD + 1), scratch256, (short)(TC.SIZEOF_RIPEMD + 1));
+        Crypto.digestScratch.doFinal(scratch256, (short)(TC.SIZEOF_RIPEMD + 1), TC.SIZEOF_SHA256, scratch256, (short)(TC.SIZEOF_RIPEMD + 1));
+        textOffset = Base58.encode(scratch256, (short)0, (short)(TC.SIZEOF_RIPEMD + 1 + 4), LWNFCForumApplet.FILE_DATA, textOffset, scratch256, (short)100);
         return textOffset;
     }
 
     private static void handleHashOutput(APDU apdu) throws ISOException {
-        byte[] buffer = apdu.getBuffer();
-        byte p1 = buffer[ISO7816.OFFSET_P1];
-        byte p2 = buffer[ISO7816.OFFSET_P2];
+    	// Stack size just fits JCOP 2.4.2 when deriving - be careful when adding local variables
+        byte[] buffer = apdu.getBuffer(); 
         apdu.setIncomingAndReceive();
         checkInterfaceConsistency();
         restoreState();
@@ -382,28 +364,23 @@ public class BTChipPocApplet extends Applet {
             ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
         if (isFirstSigned()) {
-            short length = (short)(buffer[ISO7816.OFFSET_LC] & 0xff);
-            if (length < (short)(1 + 1 + 1 + 8 + 8)) {
+        	byte i;
+            if ((short)(buffer[ISO7816.OFFSET_LC] & 0xff) < (short)(1 + 1 + 1 + 8 + 8)) {
                 ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
             }
-            switch(p1) {
+            switch(buffer[ISO7816.OFFSET_P1]) {
                 case P1_HASH_OUTPUT_BASE58:
                     break;
                 default:
                     ISOException.throwIt(ISO7816.SW_INCORRECT_P1P2);
             }
             short offset = (short)(ISO7816.OFFSET_CDATA);            
-            WrappingKeyRepository.WrappingKey encryptionKey = WrappingKeyRepository.find(buffer[offset++], WrappingKeyRepository.ROLE_PRIVATE_KEY_ENCRYPTION);
-            if (encryptionKey == null) {
-                ISOException.throwIt(ISO7816.SW_WRONG_DATA);
-            }            
             byte addressLength = buffer[offset++];
-            short changeKeyLength;
-            short decodedLength = Base58.decode(buffer, offset, addressLength, scratch255, (short)0, scratch255, (short)100);
+            short decodedLength = Base58.decode(buffer, offset, addressLength, scratch256, (short)0, scratch256, (short)100);
             if (decodedLength < 0) {
                 ISOException.throwIt(ISO7816.SW_WRONG_DATA);
             }
-            switch(scratch255[0]) {
+            switch(scratch256[0]) {
                 case KEY_VERSION:
                 case KEY_VERSION_TESTNET:
                     break;
@@ -414,49 +391,81 @@ public class BTChipPocApplet extends Applet {
                 default:
                     ISOException.throwIt(ISO7816.SW_WRONG_DATA);    
             }
-            verifyKeyChecksum(scratch255, (short)0, decodedLength, scratch255, (short)100);
-            Util.arrayCopyNonAtomic(scratch255, (short)0, TC.ctx, TC.TX_A_AUTH_OUTPUT_ADDRESS, (short)(TC.SIZEOF_RIPEMD + 1));
+            verifyKeyChecksum(scratch256, (short)0, decodedLength, scratch256, (short)100);
+            Util.arrayCopyNonAtomic(scratch256, (short)0, TC.ctx, TC.TX_A_AUTH_OUTPUT_ADDRESS, (short)(TC.SIZEOF_RIPEMD + 1));
             offset += addressLength;
-            changeKeyLength = (short)(buffer[offset++] & 0xff);
-            if (changeKeyLength != 0) {
-                encryptionKey.initCipher(false);
-                Crypto.blobEncryptDecrypt.doFinal(buffer, offset, changeKeyLength, scratch255, (short)0);
-                if (scratch255[0] != BLOB_MAGIC_PRIVATE_KEY_WITH_PUB) {
-                    ISOException.throwIt(ISO7816.SW_WRONG_DATA);
-                }
-                // TODO : save the blob first (until the next validated transaction) to avoid an attack holding the change
-                // We do not care about the private key, erase it immediately
-                Util.arrayFillNonAtomic(scratch255, (short)0, OFFSET_PUBLIC_KEY_IN_PRIVATE_BLOB, (byte)0);
-            }
-            offset += changeKeyLength;
             Util.arrayCopyNonAtomic(buffer, offset, TC.ctx, TC.TX_A_AUTH_OUTPUT_AMOUNT, TC.SIZEOF_AMOUNT);
             offset += TC.SIZEOF_AMOUNT;
             Util.arrayCopyNonAtomic(buffer, offset, TC.ctx, TC.TX_A_AUTH_FEE_AMOUNT, TC.SIZEOF_AMOUNT);
             offset += TC.SIZEOF_AMOUNT;
             // Compute change == totalInputs - (amount + fees)
-            Uint64Helper.add(scratch255, (short)240, TC.ctx, TC.TX_A_AUTH_OUTPUT_AMOUNT, TC.ctx, TC.TX_A_AUTH_FEE_AMOUNT);
-            Uint64Helper.sub(TC.ctx, TC.TX_A_AUTH_CHANGE_AMOUNT, TC.ctx, TC.TX_A_TRANSACTION_AMOUNT, scratch255, (short)240);                        
-            TC.ctx[TC.TX_Z_HAS_CHANGE] = (Uint64Helper.isZero(TC.ctx, TC.TX_A_AUTH_CHANGE_AMOUNT) ? TC.FALSE : TC.TRUE);
+            Uint64Helper.add(scratch256, (short)240, TC.ctx, TC.TX_A_AUTH_OUTPUT_AMOUNT, TC.ctx, TC.TX_A_AUTH_FEE_AMOUNT);
+            Uint64Helper.sub(TC.ctx, TC.TX_A_AUTH_CHANGE_AMOUNT, TC.ctx, TC.TX_A_TRANSACTION_AMOUNT, scratch256, (short)240);                        
+            TC.ctx[TC.TX_Z_HAS_CHANGE] = (Uint64Helper.isZero(TC.ctx, TC.TX_A_AUTH_CHANGE_AMOUNT) ? TC.FALSE : TC.TRUE);            
+        	addressLength = buffer[offset++];
+        	if (addressLength > MAX_DERIVATION_PATH) {
+        		ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+        	}
+        	if (TC.ctx[TC.TX_Z_HAS_CHANGE] == TC.TRUE) {
+        		// Unwrap the initial seed
+        		Crypto.initCipher(chipKey, false);
+        		Crypto.blobEncryptDecrypt.doFinal(masterDerived, (short)0, (short)DEFAULT_SEED_LENGTH, scratch256, (short)0);            
+        		// Derive all components            
+        		i = Bip32Cache.copyPrivateBest(buffer, offset, addressLength, scratch256, (short)0);
+        		for (; i<addressLength; i++) {
+        			Util.arrayCopyNonAtomic(buffer, (short)(offset + 4 * i), scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
+        			if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
+        				if (!Bip32Cache.setPublicIndex(buffer, (short)(offset + 4 * i), (byte)(i + 1))) {
+        					ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
+        				}	
+        			}            	
+        			Bip32.derive(buffer);
+        			Bip32Cache.storePrivate(buffer, (short)(offset + 4 * i), (byte)(i + 1), scratch256);
+        		}
+        		if (proprietaryAPI == null) {
+        			if (!Bip32Cache.setPublicIndex(buffer, offset, addressLength)) {
+        				ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
+        			}
+        			Bip32Cache.copyLastPublic(scratch256, (short)0);
+        		}
+        		else {
+        			proprietaryAPI.getUncompressedPublicPoint(scratch256, (short)0, scratch256, (short)0);
+        		}
+        	}
+            offset += (short)(4 * addressLength);                                                        
+            // TODO : handle OP_RETURN
+            /*
+            byte opReturnSize = buffer[offset++];
+            if (opReturnSize != 0) {
+                ISOException.throwIt(ISO7816.SW_WRONG_DATA);                	
+            }
+            */
+            if (buffer[offset++] != 0) {
+            	ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+            }
             // Enforce limits
             if (TC.ctxP[TC.P_TX_Z_USED] == TC.FALSE) {
                 // Amount
-                Uint64Helper.sub(scratch255, (short)200, limits, LIMIT_GLOBAL_AMOUNT, TC.ctx, TC.TX_A_AUTH_OUTPUT_AMOUNT);
-                Util.arrayCopy(scratch255, (short)200, limits, LIMIT_GLOBAL_AMOUNT, TC.SIZEOF_AMOUNT);
+                Uint64Helper.sub(scratch256, (short)200, limits, LIMIT_GLOBAL_AMOUNT, TC.ctx, TC.TX_A_AUTH_OUTPUT_AMOUNT);
+                Util.arrayCopy(scratch256, (short)200, limits, LIMIT_GLOBAL_AMOUNT, TC.SIZEOF_AMOUNT);
                 // Fees
-                Uint64Helper.sub(scratch255, (short)200, limits, LIMIT_MAX_FEES, TC.ctx, TC.TX_A_AUTH_FEE_AMOUNT);
+                Uint64Helper.sub(scratch256, (short)200, limits, LIMIT_MAX_FEES, TC.ctx, TC.TX_A_AUTH_FEE_AMOUNT);
                 // Change
                 if (TC.ctx[TC.TX_Z_HAS_CHANGE] == TC.TRUE) {
-                    Uint64Helper.sub(scratch255, (short)200, limits, LIMIT_MAX_CHANGE, TC.ctx, TC.TX_A_AUTH_CHANGE_AMOUNT);    
+                    Uint64Helper.sub(scratch256, (short)200, limits, LIMIT_MAX_CHANGE, TC.ctx, TC.TX_A_AUTH_CHANGE_AMOUNT);    
                 }
             }            
             if (TC.ctx[TC.TX_Z_HAS_CHANGE] == TC.TRUE) {
-                if (changeKeyLength == (short)0) {
-                    ISOException.throwIt(ISO7816.SW_WRONG_DATA);
-                }
                 // Compute the change address - significant performance hit if not using a native RIPEMD160
-                Crypto.digestScratch.doFinal(scratch255, OFFSET_PUBLIC_KEY_IN_PRIVATE_BLOB, PUBLIC_KEY_W_LENGTH, scratch255, (short)0);
+            	AddressUtils.compressPublicKey(scratch256, (short)0);
+                Crypto.digestScratch.doFinal(scratch256, (short)0, (short)33, scratch256, (short)0);
                 TC.ctx[TC.TX_A_AUTH_CHANGE_ADDRESS] = KEY_VERSION; // force main net
-                Crypto.hashRipemd32(scratch255, (short)0, TC.ctx, (short)(TC.TX_A_AUTH_CHANGE_ADDRESS + 1));
+                if (Crypto.digestRipemd != null) {
+                	Crypto.digestRipemd.doFinal(scratch256, (short)0, (short)32, TC.ctx, (short)(TC.TX_A_AUTH_CHANGE_ADDRESS + 1));
+                }
+                else {
+                	Ripemd160.hash32(scratch256, (short)0, TC.ctx, (short)(TC.TX_A_AUTH_CHANGE_ADDRESS + 1), scratch256, (short)33);
+                }
             }            
             if (TC.ctxP[TC.P_TX_Z_USED] == TC.TRUE) {
                 Util.arrayCopy(TC.ctx, TC.TX_A_AUTH_NONCE, TC.ctxP, TC.P_TX_A_AUTH_NONCE, TC.TX_AUTH_CONTEXT_SIZE);
@@ -466,116 +475,125 @@ public class BTChipPocApplet extends Applet {
         }
         short dataOffset = 0;
         short outOffset = 0;
-        scratch255[dataOffset++] = ((TC.ctx[TC.TX_Z_HAS_CHANGE] == TC.TRUE) ? (byte)2 : (byte)1);
-        dataOffset = addTransactionOutput(scratch255, dataOffset, TC.ctx, (short)(TC.TX_A_AUTH_OUTPUT_ADDRESS + 1), TC.ctx, TC.TX_A_AUTH_OUTPUT_AMOUNT, (TC.ctx[TC.TX_Z_IS_P2SH] == TC.TRUE));
+        // TODO : randomize output position
+        scratch256[dataOffset++] = ((TC.ctx[TC.TX_Z_HAS_CHANGE] == TC.TRUE) ? (byte)2 : (byte)1);
+        dataOffset = addTransactionOutput(scratch256, dataOffset, TC.ctx, (short)(TC.TX_A_AUTH_OUTPUT_ADDRESS + 1), TC.ctx, TC.TX_A_AUTH_OUTPUT_AMOUNT, (TC.ctx[TC.TX_Z_IS_P2SH] == TC.TRUE));
         if (TC.ctx[TC.TX_Z_HAS_CHANGE] == TC.TRUE) {
-            dataOffset = addTransactionOutput(scratch255, dataOffset, TC.ctx, (short)(TC.TX_A_AUTH_CHANGE_ADDRESS + 1), TC.ctx, TC.TX_A_AUTH_CHANGE_AMOUNT, false);
+            dataOffset = addTransactionOutput(scratch256, dataOffset, TC.ctx, (short)(TC.TX_A_AUTH_CHANGE_ADDRESS + 1), TC.ctx, TC.TX_A_AUTH_CHANGE_AMOUNT, false);
         }
         // Update the main hash
-        Crypto.digestFull.update(scratch255, (short)0, dataOffset);
+        Crypto.digestFull.update(scratch256, (short)0, dataOffset);
         // Always return the output
         buffer[outOffset++] = (byte)dataOffset;
-        Util.arrayCopyNonAtomic(scratch255, (short)0, buffer, outOffset, dataOffset);
+        Util.arrayCopyNonAtomic(scratch256, (short)0, buffer, outOffset, dataOffset);
         outOffset += dataOffset;
         if (isFirstSigned()) {
-            buffer[outOffset++] = (byte)DUMMY_AUTHORIZATION_NFC.length; // dummy authorization given, for compatibility
-            outOffset = Util.arrayCopyNonAtomic(DUMMY_AUTHORIZATION_NFC, (short)0, buffer, outOffset, (short)DUMMY_AUTHORIZATION_NFC.length);
+        	buffer[outOffset++] = AUTHORIZATION_NFC;
         }
         else {
             buffer[outOffset++] = (byte)0;
         }
         // Update the authorization hash and check it if necessary
-        Crypto.digestAuthorization.doFinal(TC.ctx, TC.TX_A_AUTH_NONCE, TC.TX_AUTH_CONTEXT_SIZE, scratch255, (short)0);
+        Crypto.digestAuthorization.doFinal(TC.ctx, TC.TX_A_AUTH_NONCE, TC.TX_AUTH_CONTEXT_SIZE, scratch256, (short)0);
         if (isFirstSigned()) {
-            Util.arrayCopyNonAtomic(scratch255, (short)0, TC.ctx, TC.TX_A_AUTHORIZATION_HASH, TC.SIZEOF_SHA256);
+            Util.arrayCopyNonAtomic(scratch256, (short)0, TC.ctx, TC.TX_A_AUTHORIZATION_HASH, TC.SIZEOF_SHA256);
             TC.ctx[TC.TX_Z_FIRST_SIGNED] = TC.FALSE;            
             if (TC.ctxP[TC.P_TX_Z_USED] == TC.TRUE) {                
-                Util.arrayCopyNonAtomic(scratch255, (short)0, TC.ctxP, TC.P_TX_A_AUTHORIZATION_HASH, TC.SIZEOF_SHA256);
+                Util.arrayCopyNonAtomic(scratch256, (short)0, TC.ctxP, TC.P_TX_A_AUTHORIZATION_HASH, TC.SIZEOF_SHA256);
                 // First signature in contact mode - prepare the confirmation text and PIN
                 TC.ctxP[TC.P_TX_Z_FIRST_SIGNED] = TC.FALSE;
-                short textOffset = BTChipNFCForumApplet.OFFSET_TEXT;
-                textOffset = Util.arrayCopyNonAtomic(TEXT_CONFIRM, (short)0, BTChipNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_CONFIRM.length);
+                short textOffset = LWNFCForumApplet.OFFSET_TEXT;
+                textOffset = Util.arrayCopyNonAtomic(TEXT_CONFIRM, (short)0, LWNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_CONFIRM.length);
                 textOffset = writeAmount(textOffset, TC.TX_A_AUTH_OUTPUT_AMOUNT, TC.TX_A_AUTH_OUTPUT_ADDRESS);
-                BTChipNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;                
-                textOffset = Util.arrayCopyNonAtomic(TEXT_FEES, (short)0, BTChipNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_FEES.length);
-                textOffset = BCDUtils.hexAmountToDisplayable(TC.ctx, TC.TX_A_AUTH_FEE_AMOUNT, BTChipNFCForumApplet.FILE_DATA, textOffset);                
-                BTChipNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;
-                textOffset = Util.arrayCopyNonAtomic(TEXT_BTC, (short)0, BTChipNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_BTC.length);
-                BTChipNFCForumApplet.FILE_DATA[textOffset++] = TEXT_COMMA;
+                LWNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;                
+                textOffset = Util.arrayCopyNonAtomic(TEXT_FEES, (short)0, LWNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_FEES.length);
+                textOffset = BCDUtils.hexAmountToDisplayable(TC.ctx, TC.TX_A_AUTH_FEE_AMOUNT, LWNFCForumApplet.FILE_DATA, textOffset);                
+                LWNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;
+                textOffset = Util.arrayCopyNonAtomic(TEXT_BTC, (short)0, LWNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_BTC.length);
+                LWNFCForumApplet.FILE_DATA[textOffset++] = TEXT_COMMA;
                 if (TC.ctx[TC.TX_Z_HAS_CHANGE] == TC.FALSE) {
-                    textOffset = Util.arrayCopyNonAtomic(TEXT_NO_CHANGE, (short)0, BTChipNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_NO_CHANGE.length);
+                    textOffset = Util.arrayCopyNonAtomic(TEXT_NO_CHANGE, (short)0, LWNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_NO_CHANGE.length);
                 }
                 else {
-                    textOffset = Util.arrayCopyNonAtomic(TEXT_CHANGE, (short)0, BTChipNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_CHANGE.length);
-                    BTChipNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;
+                    textOffset = Util.arrayCopyNonAtomic(TEXT_CHANGE, (short)0, LWNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_CHANGE.length);
+                    LWNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;
                     textOffset = writeAmount(textOffset, TC.TX_A_AUTH_CHANGE_AMOUNT, TC.TX_A_AUTH_CHANGE_ADDRESS);                    
                 }
-                BTChipNFCForumApplet.FILE_DATA[textOffset++] = TEXT_CLOSE_P;
-                BTChipNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;
-                textOffset = Util.arrayCopyNonAtomic(TEXT_PIN, (short)0, BTChipNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_PIN.length);
-                Crypto.random.generateData(scratch255, (short)0, TRANSACTION_PIN_SIZE);
+                LWNFCForumApplet.FILE_DATA[textOffset++] = TEXT_CLOSE_P;
+                LWNFCForumApplet.FILE_DATA[textOffset++] = TEXT_SPACE;
+                textOffset = Util.arrayCopyNonAtomic(TEXT_PIN, (short)0, LWNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_PIN.length);
+                Crypto.random.generateData(scratch256, (short)0, TRANSACTION_PIN_SIZE);
                 for (byte i=0; i<TRANSACTION_PIN_SIZE; i++) {
-                    scratch255[i] = (byte)((short)((scratch255[i] & 0xff)) % 10);
-                    scratch255[i] += (byte)'0';
+                    scratch256[i] = (byte)((short)((scratch256[i] & 0xff)) % 10);
+                    scratch256[i] += (byte)'0';
                 }
                 transactionPin.resetAndUnblock();
-                transactionPin.update(scratch255, (short)0, TRANSACTION_PIN_SIZE);
-                textOffset = Util.arrayCopyNonAtomic(scratch255, (short)0, BTChipNFCForumApplet.FILE_DATA, textOffset, TRANSACTION_PIN_SIZE);
-                BTChipNFCForumApplet.writeHeader((short)(textOffset - BTChipNFCForumApplet.OFFSET_TEXT));
+                transactionPin.update(scratch256, (short)0, TRANSACTION_PIN_SIZE);
+                textOffset = Util.arrayCopyNonAtomic(scratch256, (short)0, LWNFCForumApplet.FILE_DATA, textOffset, TRANSACTION_PIN_SIZE);
+                LWNFCForumApplet.writeHeader((short)(textOffset - LWNFCForumApplet.OFFSET_TEXT));
             }
         }
         else {            
-            if (Util.arrayCompare(scratch255, (short)0, TC.ctx, TC.TX_A_AUTHORIZATION_HASH, TC.SIZEOF_SHA256) != 0) {
+            if (Util.arrayCompare(scratch256, (short)0, TC.ctx, TC.TX_A_AUTHORIZATION_HASH, TC.SIZEOF_SHA256) != 0) {
                 ISOException.throwIt(ISO7816.SW_WRONG_DATA);
             }
         }
         TC.ctx[TC.TX_B_TRANSACTION_STATE] = Transaction.STATE_SIGN_READY;
         saveState();
-        apdu.setOutgoingAndSend((short)0, outOffset);        
+        apdu.setOutgoingAndSend((short)0, outOffset);                
     }
     
-    private static void handleHashSign(APDU apdu) throws ISOException {
+    private static void handleHashSign(APDU apdu) throws ISOException {    	
         byte[] buffer = apdu.getBuffer();
         short offset = ISO7816.OFFSET_CDATA;
+        byte i;
         apdu.setIncomingAndReceive();
         checkInterfaceConsistency();
         restoreState();
         if (TC.ctx[TC.TX_B_TRANSACTION_STATE] != Transaction.STATE_SIGN_READY) {
             ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
-        
-        WrappingKeyRepository.WrappingKey encryptionKey = WrappingKeyRepository.find(buffer[offset++], WrappingKeyRepository.ROLE_PRIVATE_KEY_ENCRYPTION);        
-        if (encryptionKey == null) {
-            ISOException.throwIt(ISO7816.SW_WRONG_DATA);
-        }            
-        short keyLength = (short)(buffer[offset++] & 0xff);
-        encryptionKey.initCipher(false);
-        Crypto.blobEncryptDecrypt.doFinal(buffer, offset, keyLength, scratch255, (short)0);
-        if ((scratch255[0] != BLOB_MAGIC_PRIVATE_KEY_WITH_PUB) && (scratch255[0] != BLOB_MAGIC_PRIVATE_KEY)) {
-            ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+    	byte derivationSize = buffer[offset++];
+    	if (derivationSize > MAX_DERIVATION_PATH) {
+    		ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+    	}
+    	// Unwrap the initial seed
+        Crypto.initCipher(chipKey, false);
+        Crypto.blobEncryptDecrypt.doFinal(masterDerived, (short)0, (short)DEFAULT_SEED_LENGTH, scratch256, (short)0);
+        // Derive all components
+        i = Bip32Cache.copyPrivateBest(buffer, (short)(ISO7816.OFFSET_CDATA + 1), derivationSize, scratch256, (short)0);
+        offset += (short)(i * 4);
+        for (; i<derivationSize; i++) {
+        	Util.arrayCopyNonAtomic(buffer, offset, scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
+        	if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
+        		if (!Bip32Cache.setPublicIndex(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1))) {
+        			ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
+        		}
+        	}        	
+        	Bip32.derive(buffer);
+        	Bip32Cache.storePrivate(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1), scratch256);
+        	offset += (short)4;
         }
-        offset += keyLength;
-        offset++; // skip key authorization
         short authorizationLength = (short)(buffer[offset++] & 0xff);    
         // Check the PIN if the transaction was started in contact mode
         if (TC.ctxP[TC.P_TX_Z_USED] == TC.TRUE) {
             // Clear the text
-            BTChipPocApplet.writeIdleText();
+            writeIdleText();
             if (!transactionPin.check(buffer, offset, (byte)authorizationLength)) {
                 ISOException.throwIt(ISO7816.SW_WRONG_DATA);
             }
         }
         offset += authorizationLength;        
         // Copy lockTime        
-        Uint32Helper.swap(scratch255, (short)100, buffer, offset);
+        Uint32Helper.swap(scratch256, (short)100, buffer, offset);
         offset += 4;
         // Copy sigHashType
         byte sigHashType = buffer[offset++];
-        Uint32Helper.clear(scratch255, (short)104);
-        scratch255[(short)104] = sigHashType;        
+        Uint32Helper.clear(scratch256, (short)104);
+        scratch256[(short)104] = sigHashType;        
         // Compute the signature
-        Crypto.digestFull.doFinal(scratch255, (short)100, (short)8, scratch255, (short)100);
-        Crypto.signTransientPrivate(scratch255, OFFSET_PRIVATE_KEY_IN_PRIVATE_BLOB, scratch255, (short)100, buffer, (short)0);
+        Crypto.digestFull.doFinal(scratch256, (short)100, (short)8, scratch256, (short)100);
+        Crypto.signTransientPrivate(scratch256, (short)0, scratch256, (short)100, buffer, (short)0);
         short signatureSize = (short)((short)(buffer[1] & 0xff) + 2);
         buffer[signatureSize] = sigHashType;
         // TODO : reset transaction state
@@ -585,41 +603,121 @@ public class BTChipPocApplet extends Applet {
     
     private static void handleSetup(APDU apdu) throws ISOException {
         byte[] buffer = apdu.getBuffer();
+        short offset = ISO7816.OFFSET_CDATA;
+        byte keyLength;
         apdu.setIncomingAndReceive();
         if ((setup == TC.TRUE) || (setup != TC.FALSE)) {
             ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
-        if (buffer[ISO7816.OFFSET_LC] != WALLET_PIN_SIZE) {
-            ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+        if (buffer[ISO7816.OFFSET_P1] != P1_REGULAR_SETUP) {
+        	ISOException.throwIt(ISO7816.SW_INCORRECT_P1P2);
         }
-        walletPin.update(buffer, ISO7816.OFFSET_CDATA, WALLET_PIN_SIZE);
-        Crypto.random.generateData(scratch255, (short)0, (short)16);
-        WrappingKeyRepository.add((byte)0x40, WrappingKeyRepository.ROLE_TRUSTED_INPUT_ENCRYPTION, scratch255, (short)0);
-        Crypto.random.generateData(buffer, (short)0, (short)16);
-        WrappingKeyRepository.add((byte)0x02, WrappingKeyRepository.ROLE_PRIVATE_KEY_ENCRYPTION, buffer, (short)0);                       
-        apdu.setOutgoingAndSend((short)0, (short)16);
+        supportedModes = buffer[offset++];
+        for (byte i=0; i<(byte)AVAILABLE_MODES.length; i++) {
+        	if ((supportedModes & AVAILABLE_MODES[i]) != 0) {
+        		currentMode = AVAILABLE_MODES[i];
+        		break;
+        	}
+        }
+        features = buffer[offset++];
+        if ((features & FEATURE_UNCOMPRESSED_KEYS) != 0) {
+        	ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+        }
+        stdVersion = buffer[offset++];
+        p2shVersion = buffer[offset++];
+        walletPinSize = buffer[offset++];
+        if (walletPinSize < 4) {
+        	ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+        }
+        Util.arrayFillNonAtomic(scratch256, (short)0, WALLET_PIN_SIZE, (byte)0xff);
+        Util.arrayCopyNonAtomic(buffer, offset, scratch256, (short)0, walletPinSize);
+        walletPin.update(scratch256, (short)0, WALLET_PIN_SIZE);
+        walletPin.resetAndUnblock();
+        offset += walletPinSize;
+        secondaryPinSize = buffer[offset++];
+        if (secondaryPinSize != 0) {
+            Util.arrayFillNonAtomic(scratch256, (short)0, SECONDARY_PIN_SIZE, (byte)0xff);
+            Util.arrayCopyNonAtomic(buffer, offset, scratch256, (short)0, secondaryPinSize);
+            secondaryPin.update(scratch256, (short)0, SECONDARY_PIN_SIZE);
+            secondaryPin.resetAndUnblock();
+            offset += secondaryPinSize;        	
+        }
+        keyLength = buffer[offset++];
+        if (keyLength == 0) {
+        	keyLength = DEFAULT_SEED_LENGTH;
+        	Crypto.random.generateData(scratch256, (short)0, keyLength);
+        	short textOffset = LWNFCForumApplet.OFFSET_TEXT;
+        	textOffset = Util.arrayCopyNonAtomic(TEXT_SEED, (short)0, LWNFCForumApplet.FILE_DATA, textOffset, (short)TEXT_SEED.length);
+        	for (byte i=0; i<DEFAULT_SEED_LENGTH; i++) {
+        		LWNFCForumApplet.FILE_DATA[textOffset++] = HEX[(scratch256[i] >> 4) & 0x0f];
+        		LWNFCForumApplet.FILE_DATA[textOffset++] = HEX[scratch256[i] & 0x0f];
+        	}
+        	LWNFCForumApplet.writeHeader((short)(textOffset - LWNFCForumApplet.OFFSET_TEXT));
+        	LWNFCForumApplet.erase = true;
+        }
+        else {
+        	if ((keyLength < 0) || (keyLength > DEFAULT_SEED_LENGTH)) {
+        		ISOException.throwIt(ISO7816.SW_DATA_INVALID);	
+        	}
+        	Util.arrayCopyNonAtomic(buffer, offset, scratch256, (short)0, keyLength);
+        }
+        Bip32.deriveSeed(keyLength);
+        Crypto.initCipher(chipKey, true);
+        Crypto.blobEncryptDecrypt.doFinal(masterDerived, (short)0, (short)DEFAULT_SEED_LENGTH, masterDerived, (short)0);
+        offset += keyLength;
+        if ((supportedModes & MODE_DEVELOPER) != 0) {
+        	keyLength = buffer[offset++];
+        	if (keyLength == 0) {
+                Crypto.random.generateData(scratch256, (short)0, (short)16);
+                developerKey.setKey(scratch256, (short)0);        		
+        	}
+        	else {
+            	if (keyLength != 16) {
+            		ISOException.throwIt(ISO7816.SW_DATA_INVALID);	
+            	}
+            	developerKey.setKey(buffer, offset);
+        	}
+        }
+        Crypto.random.generateData(scratch256, (short)0, (short)16);
+        trustedInputKey.setKey(scratch256, (short)0);        		
+        offset = 0;
+        buffer[offset++] = SEED_NOT_TYPED;
+        if ((supportedModes & MODE_DEVELOPER) != 0) {
+        	trustedInputKey.getKey(buffer, offset);
+        	offset += (short)16;
+        	developerKey.getKey(buffer, offset);
+        	offset += (short)16;
+        }
+        apdu.setOutgoingAndSend((short)0, offset);
         setup = TC.TRUE;
     }
     
-    private static void handleUnlock(APDU apdu) throws ISOException {
+    private static void handleVerifyPin(APDU apdu) throws ISOException {
         byte[] buffer = apdu.getBuffer();
+        if (buffer[ISO7816.OFFSET_P1] == P1_GET_REMAINING_ATTEMPTS) {
+        	buffer[0] = walletPin.getTriesRemaining();
+        	apdu.setOutgoingAndSend((short)0, (short)1);
+        	return;
+        }
         apdu.setIncomingAndReceive();
         if ((setup == TC.FALSE) || (setup != TC.TRUE)) {
             ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
-        if (buffer[ISO7816.OFFSET_LC] != WALLET_PIN_SIZE) {
+        if (buffer[ISO7816.OFFSET_LC] != walletPinSize) {
             ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
         }
-        if (!walletPin.check(buffer, ISO7816.OFFSET_CDATA, WALLET_PIN_SIZE)) {
+        Util.arrayFillNonAtomic(scratch256, (short)0, WALLET_PIN_SIZE, (byte)0xff);
+        Util.arrayCopyNonAtomic(buffer, ISO7816.OFFSET_CDATA, scratch256, (short)0, walletPinSize);        
+        if (!walletPin.check(scratch256, (short)0, WALLET_PIN_SIZE)) {
             ISOException.throwIt(ISO7816.SW_SECURITY_STATUS_NOT_SATISFIED);
         }
-    }
+    }        
 
     private static void handleGetContactlessLimit(APDU apdu) throws ISOException {
         if ((setup == TC.FALSE) || (setup != TC.TRUE)) {
             ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
-        Util.arrayCopyNonAtomic(limits, (short)0, scratch255, (short)0, LIMIT_LAST);
+        Util.arrayCopyNonAtomic(limits, (short)0, scratch256, (short)0, LIMIT_LAST);
         apdu.setOutgoingAndSend((short)0, LIMIT_LAST);
     }
     
@@ -637,13 +735,35 @@ public class BTChipPocApplet extends Applet {
             limitsSet = TC.TRUE;
         }
     }
-       
-    public static void clearScratch() {
-        Util.arrayFillNonAtomic(scratch255, (short)0, (short)scratch255.length, (byte)0x00);
+    
+    private static void handleGetFirmwareVersion(APDU apdu) throws ISOException {
+    	byte[] buffer = apdu.getBuffer();
+    	Util.arrayCopyNonAtomic(FIRMWARE_VERSION, (short)0, buffer, (short)0, (short)FIRMWARE_VERSION.length);
+    	apdu.setOutgoingAndSend((short)0, (short)FIRMWARE_VERSION.length);
     }
     
-    public void process(APDU apdu) throws ISOException {
+    private static void handleGetOperationMode(APDU apdu) throws ISOException { 
+    	byte[] buffer = apdu.getBuffer();
+    	if (buffer[ISO7816.OFFSET_P1] == P1_GET_OPERATION_MODE) {
+    		buffer[0] = currentMode;
+    	}
+    	else
+    	if (buffer[ISO7816.OFFSET_P1] == P1_GET_OPERATION_MODE_2FA) {
+    		buffer[0] = SFA_NFC;
+    	}
+    	apdu.setOutgoingAndSend((short)0, (short)1);    	
+    }
+       
+    public static void clearScratch() {
+        Util.arrayFillNonAtomic(scratch256, (short)0, (short)scratch256.length, (byte)0x00);
+    }
+    
+    public void process(APDU apdu) throws ISOException {    	
         if (selectingApplet()) {
+        	if (LWNFCForumApplet.erase) {
+        		writeIdleText();
+        		LWNFCForumApplet.erase = false;
+        	}
             return;
         }
         byte[] buffer = apdu.getBuffer();
@@ -653,24 +773,24 @@ public class BTChipPocApplet extends Applet {
             try {
                 switch(buffer[ISO7816.OFFSET_INS]) {
                     case INS_SETUP:
-                        handleSetup(apdu);
-                        break;
-                    case INS_UNLOCK:
-                        handleUnlock(apdu);
-                        break;
+                        handleSetup(apdu);                        
+                        break;           
+                    case INS_VERIFY_PIN:
+                    	handleVerifyPin(apdu);
+                    	break;
+                    case INS_GET_WALLET_PUBLIC_KEY:
+                    	checkAccess(true);
+                    	handleGetWalletPublicKey(apdu);
+                    	break;
                     case INS_GET_CONTACTLESS_LIMIT:
                         handleGetContactlessLimit(apdu);
                         break;
                     case INS_SET_CONTACTLESS_LIMIT:
-                        checkAccess();
+                        checkAccess(true);
                         handleSetContactlessLimit(apdu);
-                        break;                        
-                    case INS_GENERATE:
-                        checkAccess();
-                        handleGenerate(apdu);
-                        break;
+                        break;            
                     case INS_GET_TRUSTED_INPUT:
-                        checkAccess();
+                        checkAccess(false);
                         handleTrustedInput(apdu);
                         break;
                     case INS_UNTRUSTED_HASH_START:
@@ -681,7 +801,13 @@ public class BTChipPocApplet extends Applet {
                         break;
                     case INS_UNTRUSTED_HASH_SIGN:
                         handleHashSign(apdu);
+                        break;                   
+                    case INS_GET_FIRMWARE_VERSION:
+                    	handleGetFirmwareVersion(apdu);
                         break;
+                    case INS_GET_OPERATION_MODE:
+                    	handleGetOperationMode(apdu);
+                    	break;
                     default:
                         ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
                 }
@@ -705,13 +831,21 @@ public class BTChipPocApplet extends Applet {
     }
 
     public static void install (byte bArray[], short bOffset, byte bLength) throws ISOException {
-        new BTChipPocApplet().register(bArray, (short)(bOffset + 1), bArray[bOffset]);
+        new LedgerWalletApplet().register(bArray, (short)(bOffset + 1), bArray[bOffset]);
     }
     
+    private static final byte FIRMWARE_VERSION[] = {
+    	(byte)0x01, (byte)0x60, (byte)0x01, (byte)0x01, (byte)0x00, (byte)0x00, (byte)0x00
+    };
+    
+    protected static final short SW_PUBLIC_POINT_NOT_AVAILABLE = (short)0x6FF6;
+ 
     private static final byte TRANSACTION_PIN_ATTEMPTS = (byte)1;
     private static final byte TRANSACTION_PIN_SIZE = (byte)4;
     private static final byte WALLET_PIN_ATTEMPTS = (byte)3;
-    private static final byte WALLET_PIN_SIZE = (byte)8;
+    private static final byte WALLET_PIN_SIZE = (byte)32;
+    private static final byte SECONDARY_PIN_ATTEMPTS = (byte)3;
+    private static final byte SECONDARY_PIN_SIZE = (byte)4;
     
 
     private static final byte TEXT_IDLE[] = { 'N', 'o', ' ', 'p', 'e', 'n', 'd', 'i', 'n', 'g', ' ', 't', 'r', 'a', 'n', 's', 'f', 'e', 'r' };
@@ -725,9 +859,12 @@ public class BTChipPocApplet extends Applet {
     private static final byte TEXT_CLOSE_P = ')';
     private static final byte TEXT_SPACE = ' ';
     private static final byte TEXT_COMMA = ',';
-
-    private static final byte DUMMY_AUTHORIZATION_NFC[] = { (byte)'N', (byte)'F', (byte)'C' };
+    private static final byte TEXT_SEED[] = { 'W','a','l','l','e','t',' ', 'S','e','e','d', ':', ' ' };
     
+    private static final byte HEX[] = { '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F' };
+    
+    private static final byte AUTHORIZATION_NFC = (byte)0x04;
+        
     private static final byte TRANSACTION_OUTPUT_SCRIPT_PRE[] = { (byte)0x19, (byte)0x76, (byte)0xA9, (byte)0x14 }; // script length, OP_DUP, OP_HASH160, address length
     private static final byte TRANSACTION_OUTPUT_SCRIPT_POST[] = { (byte)0x88, (byte)0xAC }; // OP_EQUALVERIFY, OP_CHECKSIG
     private static final byte TRANSACTION_OUTPUT_SCRIPT_P2SH_PRE[] = { (byte)0x17, (byte)0xA9, (byte)0x14 }; // script length, OP_HASH160, address length
@@ -740,28 +877,35 @@ public class BTChipPocApplet extends Applet {
     
     private static final byte PUBLIC_KEY_W_LENGTH = 65;
     private static final byte PRIVATE_KEY_S_LENGTH = 32;
-    private static final byte OFFSET_PRIVATE_KEY_IN_PRIVATE_BLOB = (short)(1 + 1 + 2 + 2 + 2);
-    private static final byte OFFSET_PUBLIC_KEY_IN_PRIVATE_BLOB = (short)(1 + 1 + 2 + 2 + 2 + PRIVATE_KEY_S_LENGTH);    
     
     private static final byte CLA_BTC = (byte)0xE0;
-    private static final byte INS_GENERATE = (byte)0x20;
+    private static final byte INS_SETUP = (byte)0x20;
+    private static final byte INS_SET_USER_KEYCARD = (byte)0x10;
+    private static final byte INS_SETUP_SECURE_SCREEN = (byte)0x12;
+    private static final byte INS_SET_ALTERNATE_COIN_VERSIONS = (byte)0x14;
+    private static final byte INS_VERIFY_PIN = (byte)0x22;
+    private static final byte INS_GET_OPERATION_MODE = (byte)0x24;
+    private static final byte INS_SET_OPERATION_MODE = (byte)0x26;
+    private static final byte INS_GET_WALLET_PUBLIC_KEY = (byte)0x40;
     private static final byte INS_GET_TRUSTED_INPUT = (byte)0x42;
     private static final byte INS_UNTRUSTED_HASH_START = (byte)0x44;
     private static final byte INS_UNTRUSTED_HASH_FINALIZE = (byte)0x46;
     private static final byte INS_UNTRUSTED_HASH_SIGN = (byte)0x48;
-    private static final byte INS_SETUP = (byte)0xA0;
-    private static final byte INS_UNLOCK = (byte)0xA2;
+    private static final byte INS_UNTRUSTED_HASH_FINALIZE_FULL = (byte)0x4A;
+    private static final byte INS_SIGN_MESSAGE = (byte)0x4E;
+    private static final byte INS_IMPORT_PRIVATE_KEY = (byte)0xB0;
+    private static final byte INS_GET_PUBLIC_KEY = (byte)0xB2;
+    private static final byte INS_DERIVE_BIP32_KEY = (byte)0xB4;
+    private static final byte INS_SIGN_VERIFY_IMMEDIATE = (byte)0xB6;
+    private static final byte INS_GET_RANDOM = (byte)0xC0;
+    private static final byte INS_GET_ATTESTATION = (byte)0xC2;
+    private static final byte INS_GET_FIRMWARE_VERSION = (byte)0xC4;   
+    		
+    private static final byte INS_GENERATE = (byte)0x20;
     private static final byte INS_SET_CONTACTLESS_LIMIT = (byte)0xA4;
     private static final byte INS_GET_CONTACTLESS_LIMIT = (byte)0xA6;
-    
-    
-    private static final byte P1_GENERATE_PREPARE = (byte)0x80;
-    private static final byte P1_GENERATE_PROVIDE_AUTHORIZED_KEY = (byte)0x01;
-    private static final byte P1_GENERATE_PREPARE_BASE58 = (byte)0x02;
-    private static final byte P1_GENERATE_PREPARE_HASH = (byte)0x04;
-    private static final byte P1_GENERATE_PREPARE_DERIVE = (byte)0x08;
-    private static final byte P1_GENERATE_PREPARE_UID = (byte)0x10;
-    private static final byte P1_GENERATE_PREPARE_BIN = (byte)0x20;
+
+    private static final byte P1_REGULAR_SETUP = (byte)0x00;
     
     private static final byte P1_TRUSTED_INPUT_FIRST = (byte)0x00;
     private static final byte P1_TRUSTED_INPUT_NEXT = (byte)0x80;
@@ -775,22 +919,60 @@ public class BTChipPocApplet extends Applet {
     private static final byte P1_HASH_OUTPUT_BASE58 = (byte)0x02;
     private static final byte P1_HASH_OUTPUT_AUTHORIZED_ADDRESS = (byte)0x03;
     private static final byte P1_HASH_OUTPUT_HASH160_P2SH = (byte)0x04;
+    
+    private static final byte P1_GET_REMAINING_ATTEMPTS = (byte)0x80;
+    
+    private static final byte P1_GET_OPERATION_MODE = (byte)0x00;
+    private static final byte P1_GET_OPERATION_MODE_2FA = (byte)0x01;
             
-    public static final byte BLOB_MAGIC_PRIVATE_KEY = (byte)0x01;
-    public static final byte BLOB_MAGIC_PRIVATE_KEY_WITH_PUB = (byte)0x11;
-    public static final byte BLOB_MAGIC_ENCODED_ADDRESS = (byte)0x21;
-    public static final byte BLOB_MAGIC_TRUSTED_INPUT = (byte)0x31;
+    public static final byte BLOB_MAGIC_TRUSTED_INPUT = (byte)0x32;
     
     private static final byte LIMIT_GLOBAL_AMOUNT = (byte)0;
     private static final byte LIMIT_MAX_FEES = (byte)(LIMIT_GLOBAL_AMOUNT + TC.SIZEOF_AMOUNT);
     private static final byte LIMIT_MAX_CHANGE = (byte)(LIMIT_MAX_FEES + TC.SIZEOF_AMOUNT);
     private static final byte LIMIT_LAST = (byte)(LIMIT_MAX_CHANGE + TC.SIZEOF_AMOUNT);
+    
+    private static final byte MODE_WALLET = (byte)0x01;
+    private static final byte MODE_RELAXED_WALLET = (byte)0x02;
+    private static final byte MODE_SERVER = (byte)0x04;
+    private static final byte MODE_DEVELOPER = (byte)0x08;
+    
+    private static final byte SFA_NONE = (byte)0x00;
+    private static final byte SFA_ORIGINAL = (byte)0x11;
+    private static final byte SFA_SECURITY_CARD = (byte)0x12;
+    private static final byte SFA_SECURE_SCREEN = (byte)0x13;
+    private static final byte SFA_NFC = (byte)0x20;
+    
+    private static final byte FEATURE_UNCOMPRESSED_KEYS = (byte)0x01;
+    private static final byte FEATURE_RFC_6979 = (byte)0x02;
+    private static final byte FEATURE_ALL_HASHTYPES = (byte)0x04;
+    private static final byte FEATURE_NO_2FA_P2SH = (byte)0x08;
+    
+    private static final byte DEFAULT_SEED_LENGTH = (byte)64;
+    
+    private static final byte MAX_DERIVATION_PATH = (byte)10;
+    
+    private static final byte SEED_NOT_TYPED = (byte)0x00;
+    
+    private static final byte AVAILABLE_MODES[] = { MODE_WALLET, MODE_RELAXED_WALLET, MODE_SERVER, MODE_DEVELOPER };
         
-    public static byte[] scratch255;
+    public static byte[] scratch256;
     private static OwnerPIN transactionPin;
     private static OwnerPIN walletPin;
+    private static byte walletPinSize;
+    private static OwnerPIN secondaryPin;
+    private static byte secondaryPinSize;
     private static byte setup;
     private static byte limitsSet;
-    
+    private static DESKey chipKey;
+    protected static DESKey trustedInputKey;
+    protected static DESKey developerKey;
+    private static byte supportedModes;
+    protected static byte features;
+    protected static byte currentMode;
+    private static byte stdVersion;
+    private static byte p2shVersion;
+    protected static byte[] masterDerived;   
     private static byte[] limits;    
+    protected static ProprietaryAPI proprietaryAPI;
 }

@@ -1,7 +1,7 @@
 /*
 *******************************************************************************    
-*   BTChip Bitcoin Hardware Wallet Java Card implementation
-*   (c) 2013 BTChip - 1BTChip7VfTnrPra5jqci7ejnMguuHogTn
+*   Java Card Bitcoin Hardware Wallet
+*   (c) 2015 Ledger
 *   
 *   This program is free software: you can redistribute it and/or modify
 *   it under the terms of the GNU Affero General Public License as
@@ -18,9 +18,8 @@
 *******************************************************************************   
 */    
 
-package com.btchip.applet.poc;
+package com.ledger.wallet;
 
-import javacard.framework.JCSystem;
 import javacard.framework.Util;
 
 /**
@@ -104,12 +103,9 @@ import javacard.framework.Util;
         }
  
 public class Ripemd160 {
-    
-    public static void init() {
-        scratch = JCSystem.makeTransientByteArray((short)BLOCK_SIZE, JCSystem.CLEAR_ON_DESELECT);
-    }
-                                
-    public static void hash32(byte[] buffer, short offset, byte[] target, short targetOffset)
+
+	// Scratch should be at least 64 bytes long    
+    public static void hash32(byte[] buffer, short offset, byte[] target, short targetOffset, byte[] scratch, short scratchOffset)
     {
       byte i;
       decl(H0); decl(H1); decl(H2); decl(H3); decl(H4);
@@ -122,10 +118,12 @@ public class Ripemd160 {
       set(H2, 0x98BA, 0xDCFE);
       set(H3, 0x1032, 0x5476);
       set(H4, 0xC3D2, 0xE1F0);
-      Util.arrayCopyNonAtomic(buffer, offset, scratch, (short)0, (short)32);
-      scratch[32] = (byte)0x80;
-      scratch[64 - 7] = (byte)0x01;
+      Util.arrayFillNonAtomic(scratch, scratchOffset, (short)64, (byte)0x00);
+      Util.arrayCopyNonAtomic(buffer, offset, scratch, scratchOffset, (short)32);
+      scratch[(short)(scratchOffset + 32)] = (byte)0x80;
+      scratch[(short)(scratchOffset + 64 - 7)] = (byte)0x01;
       // encode 64 bytes from input block into an array of 16 unsigned integers
+      offset = scratchOffset;
       for (i = 0; i < 16; i++) {
         short low = (short)((scratch[offset++] & 0xff) | ((scratch[offset++] & 0xff) << 8));
         short high = (short)((scratch[offset++] & 0xff) | ((scratch[offset++] & 0xff) << 8));
@@ -371,16 +369,12 @@ public class Ripemd160 {
          9,  7, 15, 11,  8,  6,  6, 14, 12, 13,  5, 14, 13, 13,  7,  5,
         15,  5,  8, 11, 14, 14,  6, 14,  6,  9, 12,  9, 12,  5, 15,  8,
          8,  5, 12,  9, 12,  5, 14,  6,  8, 13,  6,  5, 15, 13, 11, 11 };
-        
-    private static byte[] scratch;
-    
+            
     private static final short[] mask = {
         (short)0x0000, (short)0x0001, (short)0x0003, (short)0x0007,  
         (short)0x000F, (short)0x001F, (short)0x003F, (short)0x007F,  
         (short)0x00FF, (short)0x01FF, (short)0x03FF, (short)0x07FF,  
         (short)0x0FFF, (short)0x1FFF, (short)0x3FFF, (short)0x7FFF,  
     };          
-        
-    private static final byte BLOCK_SIZE = 64;
-        
+                
 }

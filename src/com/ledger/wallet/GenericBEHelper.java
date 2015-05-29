@@ -1,7 +1,7 @@
 /*
 *******************************************************************************    
-*   BTChip Bitcoin Hardware Wallet Java Card implementation
-*   (c) 2013 BTChip - 1BTChip7VfTnrPra5jqci7ejnMguuHogTn
+*   Java Card Bitcoin Hardware Wallet
+*   (c) 2015 Ledger
 *   
 *   This program is free software: you can redistribute it and/or modify
 *   it under the terms of the GNU Affero General Public License as
@@ -18,7 +18,7 @@
 *******************************************************************************   
 */    
 
-package com.btchip.applet.poc;
+package com.ledger.wallet;
 
 import javacard.framework.ISO7816;
 import javacard.framework.ISOException;

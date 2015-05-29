@@ -1,0 +1,758 @@
+/*
+*******************************************************************************    
+*   Java Card Bitcoin Hardware Wallet
+*   (c) 2015 Ledger
+*   
+*   This program is free software: you can redistribute it and/or modify
+*   it under the terms of the GNU Affero General Public License as
+*   published by the Free Software Foundation, either version 3 of the
+*   License, or (at your option) any later version.
+*
+*   This program is distributed in the hope that it will be useful,
+*   but WITHOUT ANY WARRANTY; without even the implied warranty of
+*   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+*   GNU Affero General Public License for more details.
+*
+*   You should have received a copy of the GNU Affero General Public License
+*   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*******************************************************************************   
+*/    
+
+ #define decl(varname) \
+  short varname ## N1, varname ## N2, varname ## N3, varname ## N4
+ 
+ #define Xj(j) \
+ 	(short)(4*j)
+ 
+/*
+ Unrolled versions of
+  
+ #define r0(h,l,n) \
+ 	(short) \
+      ( (h>>>n) & ~(((short)0xFFFF<<(16-n)) )  | \
+        ((short)(l<<(16-n)))              )
+*/        
+ 
+ #define r0_6(h,l) \
+ 	(short) \
+      ( (h>>>6) & (short)1023  | \
+        ((short)(l<<(10)))              )
+
+#define r0_7(h,l) \
+ 	(short) \
+      ( (h>>>7) & (short)511  | \
+        ((short)(l<<(9)))              )
+
+#define r0_3(h,l) \
+ 	(short) \
+      ( (h>>>3) & (short)8191  | \
+        ((short)(l<<(13)))              )
+
+#define r0_13(h,l) \
+ 	(short) \
+      ( (h>>>13) & (short)7  | \
+        ((short)(l<<(3)))              )
+        
+#define r0_1(h,l) \
+ 	(short) \
+      ( (h>>>1) & (short)32767  | \
+        ((short)(l<<(15)))              )
+        
+#define r0_8(h,l) \
+ 	(short) \
+      ( (h>>>8) & (short)255  | \
+        ((short)(l<<(8)))              )
+
+#define r0_14(h,l) \
+ 	(short) \
+      ( (h>>>14) & (short)3  | \
+        ((short)(l<<(2)))              )
+
+#define r0_2(h,l) \
+ 	(short) \
+      ( (h>>>2) & (short)16383  | \
+        ((short)(l<<(14)))              )
+
+#define r0_9(h,l) \
+ 	(short) \
+      ( (h>>>9) & (short)127  | \
+        ((short)(l<<(7)))              )
+
+#define r0_12(h,l) \
+ 	(short) \
+      ( (h>>>12) & (short)15  | \
+        ((short)(l<<(4)))              )
+
+/*
+ Unrolled versions of
+              
+ #define s0(h,n) \
+    (short) \
+      ((h>>>n) & ~(((short)0xFFFF<<(16-n)) ))
+*/
+         
+#define s0_6(h) \
+    (short) \
+      ((h>>>6) & (short)1023)
+
+#define s0_7(h) \
+    (short) \
+      ((h>>>7) & (short)511)
+
+      
+ #define sum512(x_off, a, b, c) \
+    rotR64_ ## a(T3, x_off); \
+    rotR64_ ## b(T4, x_off); \
+    rotR64_ ## c(T5, x_off); \
+    x_off ## N1 = (short)(T3N1 ^ T4N1 ^ T5N1); \
+    x_off ## N2 = (short)(T3N2 ^ T4N2 ^ T5N2); \
+    x_off ## N3 = (short)(T3N3 ^ T4N3 ^ T5N3); \
+    x_off ## N4 = (short)(T3N4 ^ T4N4 ^ T5N4); 
+
+  #define sig512(x_off, a, b, c) \
+    rotR64_ ## a(T3, x_off); \
+    rotR64_ ## b(T4, x_off); \
+    shR64_ ## c(T5, x_off); \
+    x_off ## N1 = (short)(T3N1 ^ T4N1 ^ T5N1); \
+    x_off ## N2 = (short)(T3N2 ^ T4N2 ^ T5N2); \
+    x_off ## N3 = (short)(T3N3 ^ T4N3 ^ T5N3); \
+    x_off ## N4 = (short)(T3N4 ^ T4N4 ^ T5N4); \
+
+  #define ch(r_off, x_off, y_off, z_off) \
+    r_off ## N1 = (short) \
+      ( (  (x_off ## N1) & (y_off ## N1) ) ^ \
+        ( (~x_off ## N1) & (z_off ## N1) ) ); \
+    r_off ## N2 = (short) \
+      ( (  (x_off ## N2) & (y_off ## N2) ) ^ \
+        ( (~x_off ## N2) & (z_off ## N2) ) ); \
+    r_off ## N3 = (short) \
+      ( (  (x_off ## N3) & (y_off ## N3) ) ^ \
+        ( (~x_off ## N3) & (z_off ## N3) ) ); \
+    r_off ## N4 = (short) \
+      ( (  (x_off ## N4) & (y_off ## N4) ) ^ \
+        ( (~x_off ## N4) & (z_off ## N4) ) ); 
+  
+  #define maj(r_off, x_off, y_off, z_off) \
+    r_off ## N1 = (short) \
+      ( ( (x_off ## N1) & (y_off ## N1) ) ^ \
+        ( (x_off ## N1) & (z_off ## N1) ) ^ \
+        ( (y_off ## N1) & (z_off ## N1) ) ); \
+    r_off ## N2 = (short) \
+      ( ( (x_off ## N2) & (y_off ## N2) ) ^ \
+        ( (x_off ## N2) & (z_off ## N2) ) ^ \
+        ( (y_off ## N2) & (z_off ## N2) ) ); \
+    r_off ## N3 = (short) \
+      ( ( (x_off ## N3) & (y_off ## N3) ) ^ \
+        ( (x_off ## N3) & (z_off ## N3) ) ^ \
+        ( (y_off ## N3) & (z_off ## N3) ) ); \
+    r_off ## N4 = (short) \
+      ( ( (x_off ## N4) & (y_off ## N4) ) ^ \
+        ( (x_off ## N4) & (z_off ## N4) ) ^ \
+        ( (y_off ## N4) & (z_off ## N4) ) ); 
+  
+  #define assign64(offset_c, offset_a) \
+    offset_c ## N1 = offset_a ## N1; \
+    offset_c ## N2 = offset_a ## N2; \
+    offset_c ## N3 = offset_a ## N3; \
+    offset_c ## N4 = offset_a ## N4; 
+
+  #define assign64Cst(offset_c, offset_a) \
+  	tmpOff = offset_a; \
+    offset_c ## N1 = blk[tmpOff]; \
+    offset_c ## N2 = blk[(short)(tmpOff + 1)]; \
+    offset_c ## N3 = blk[(short)(tmpOff + 2)]; \
+    offset_c ## N4 = blk[(short)(tmpOff + 3)]; 
+
+  #define assign64ToCst(offset_c, offset_a) \
+  	tmpOff = offset_c; \
+    blk[tmpOff] = offset_a ## N1; \
+    blk[(short)(tmpOff + 1)] = offset_a ## N2; \
+    blk[(short)(tmpOff + 2)] = offset_a ## N3; \
+    blk[(short)(tmpOff + 3)] = offset_a ## N4; 
+
+#define add64(a_off, b_off) \
+	addxl = (short)((a_off ## N4&0xFF) + (b_off ## N4&0xFF));\
+	addxh = (short)(((a_off ## N4>>>8)&0xFF) + ((b_off ## N4>>>8)&0xFF) + (short)(addxl>>>8));\
+	addc  = (short)(addxh>>>8);\
+	a_off ## N4 = (short)((addxh<<8) | (addxl&0xFF));\
+	addxl = (short)((a_off ## N3&0xFF) + (b_off ## N3&0xFF) + addc);\
+	addxh = (short)(((a_off ## N3>>>8)&0xFF) + ((b_off ## N3>>>8)&0xFF) + (short)(addxl>>>8));\
+	addc  = (short)(addxh>>>8);\
+	a_off ## N3 = (short)((addxh<<8) | (addxl&0xFF));\
+	addxl = (short)((a_off ## N2&0xFF) + (b_off ## N2&0xFF) + addc);\
+	addxh = (short)(((a_off ## N2>>>8)&0xFF) + ((b_off ## N2>>>8)&0xFF) + (short)(addxl>>>8));\
+	addc  = (short)(addxh>>>8);\
+	a_off ## N2 = (short)((addxh<<8) | (addxl&0xFF));\
+	addxl = (short)((a_off ## N1&0xFF) + (b_off ## N1&0xFF) + addc);\
+	addxh = (short)(((a_off ## N1>>>8)&0xFF) + ((b_off ## N1>>>8)&0xFF) + (short)(addxl>>>8));\
+	a_off ## N1 = (short)((addxh<<8) | (addxl&0xFF));
+    	
+#define add64H(a_off, b_off) \
+	adda = working[(short)(a_off + 3)];\
+	addxl = (short)((adda&0xFF) + (b_off ## N4&0xFF));\
+	addxh = (short)(((adda>>>8)&0xFF) + ((b_off ## N4>>>8)&0xFF) + (short)(addxl>>>8));\
+	addc  = (short)(addxh>>>8);\
+	working[(short)(a_off + 3)] = (short)((addxh<<8) | (addxl&0xFF));\
+	adda = working[(short)(a_off + 2)];\
+	addxl = (short)((adda&0xFF) + (b_off ## N3&0xFF) + addc);\
+	addxh = (short)(((adda>>>8)&0xFF) + ((b_off ## N3>>>8)&0xFF) + (short)(addxl>>>8));\
+	addc  = (short)(addxh>>>8);\
+	working[(short)(a_off + 2)] = (short)((addxh<<8) | (addxl&0xFF));\
+	adda = working[(short)(a_off + 1)];\
+	addxl = (short)((adda&0xFF) + (b_off ## N2&0xFF) + addc);\
+	addxh = (short)(((adda>>>8)&0xFF) + ((b_off ## N2>>>8)&0xFF) + (short)(addxl>>>8));\
+	addc  = (short)(addxh>>>8);\
+	working[(short)(a_off + 1)] = (short)((addxh<<8) | (addxl&0xFF));\
+	adda = working[a_off];\
+	addxl = (short)((adda&0xFF) + (b_off ## N1&0xFF) + addc);\
+	addxh = (short)(((adda>>>8)&0xFF) + ((b_off ## N1>>>8)&0xFF) + (short)(addxl>>>8));\
+	working[a_off] = (short)((addxh<<8) | (addxl&0xFF));
+
+#define add64Cst(a_off, b_off) \
+	tmpOff = b_off; \
+    addb = blk[(short)(tmpOff + 3)];\
+	addxl = (short)((a_off ## N4&0xFF) + (addb&0xFF));\
+	addxh = (short)(((a_off ## N4>>>8)&0xFF) + ((addb>>>8)&0xFF) + (short)(addxl>>>8));\
+	addc  = (short)(addxh>>>8);\
+	a_off ## N4 = (short)((addxh<<8) | (addxl&0xFF));\
+	addb = blk[(short)(tmpOff + 2)];\
+	addxl = (short)((a_off ## N3&0xFF) + (addb&0xFF) + addc);\
+	addxh = (short)(((a_off ## N3>>>8)&0xFF) + ((addb>>>8)&0xFF) + (short)(addxl>>>8));\
+	addc  = (short)(addxh>>>8);\
+	a_off ## N3 = (short)((addxh<<8) | (addxl&0xFF));\
+	addb = blk[(short)(tmpOff + 1)];\
+	addxl = (short)((a_off ## N2&0xFF) + (addb&0xFF) + addc);\
+	addxh = (short)(((a_off ## N2>>>8)&0xFF) + ((addb>>>8)&0xFF) + (short)(addxl>>>8));\
+	addc  = (short)(addxh>>>8);\
+	a_off ## N2 = (short)((addxh<<8) | (addxl&0xFF));\
+	addb = blk[tmpOff];\
+	addxl = (short)((a_off ## N1&0xFF) + (addb&0xFF) + addc);\
+	addxh = (short)(((a_off ## N1>>>8)&0xFF) + ((addb>>>8)&0xFF) + (short)(addxl>>>8));\
+	a_off ## N1 = (short)((addxh<<8) | (addxl&0xFF));
+
+
+/*
+
+Unrolled versions of 
+
+  #define shR64(c_off, a_off, n) \
+    nProc = n;\
+    if (nProc<16) {\
+      c_off ## N1 = s0(a_off ## N1,nProc);\
+      c_off ## N2 = r0(a_off ## N2,a_off ## N1,nProc);\
+      c_off ## N3 = r0(a_off ## N3,a_off ## N2,nProc);\
+      c_off ## N4 = r0(a_off ## N4,a_off ## N3,nProc);\
+    } else if (nProc<32) {\
+      nProc  -= 16;\
+      c_off ## N1 = 0;\
+      c_off ## N2 = s0(a_off ## N1,nProc);\
+      c_off ## N3 = r0(a_off ## N2,a_off ## N1,nProc);\
+      c_off ## N4 = r0(a_off ## N3,a_off ## N2,nProc);\
+    } else if (nProc<48) {\
+       nProc  -= 32;\
+      c_off ## N1 = 0;\
+      c_off ## N2 = 0;\
+      c_off ## N3 = s0(a_off ## N1,nProc);\
+      c_off ## N4 = r0(a_off ## N2,a_off ## N1,nProc);\
+    } else {\
+       nProc  -= 48;\
+      c_off ## N1 = 0;\
+      c_off ## N2 = 0;\
+      c_off ## N3 = 0;\
+      c_off ## N4 = s0(a_off ## N1,nProc);\
+    }
+    
+*/
+
+  #define shR64_6(c_off, a_off)\
+      c_off ## N1 = s0_6(a_off ## N1);\
+      c_off ## N2 = r0_6(a_off ## N2,a_off ## N1);\
+      c_off ## N3 = r0_6(a_off ## N3,a_off ## N2);\
+      c_off ## N4 = r0_6(a_off ## N4,a_off ## N3);
+
+  #define shR64_7(c_off, a_off)\
+      c_off ## N1 = s0_7(a_off ## N1);\
+      c_off ## N2 = r0_7(a_off ## N2,a_off ## N1);\
+      c_off ## N3 = r0_7(a_off ## N3,a_off ## N2);\
+      c_off ## N4 = r0_7(a_off ## N4,a_off ## N3);
+
+/*
+  Unrolled versions of 
+
+  #define rotR64(c_off, a_off, n) \
+    nProc = n;\
+    if (nProc<16) { \
+      c_off ## N1 = r0(a_off ## N1,a_off ## N4,nProc);\
+      c_off ## N2 = r0(a_off ## N2,a_off ## N1,nProc);\
+      c_off ## N3 = r0(a_off ## N3,a_off ## N2,nProc);\
+      c_off ## N4 = r0(a_off ## N4,a_off ## N3,nProc);\
+    } else if (nProc<32) {\
+      nProc -= 16;\
+      c_off ## N1 = r0(a_off ## N4,a_off ## N3,nProc);\
+      c_off ## N2 = r0(a_off ## N1,a_off ## N4,nProc);\
+      c_off ## N3 = r0(a_off ## N2,a_off ## N1,nProc);\
+      c_off ## N4 = r0(a_off ## N3,a_off ## N2,nProc);\
+    } else if (nProc<48) {\
+      nProc -= 32;\
+      c_off ## N1 = r0(a_off ## N3,a_off ## N2,nProc);\
+      c_off ## N2 = r0(a_off ## N4,a_off ## N3,nProc);\
+      c_off ## N3 = r0(a_off ## N1,a_off ## N4,nProc);\
+      c_off ## N4 = r0(a_off ## N2,a_off ## N1,nProc);\
+    } else {\
+      nProc -= 48;\
+      c_off ## N1 = r0(a_off ## N2,a_off ## N1,nProc);\
+      c_off ## N2 = r0(a_off ## N3,a_off ## N2,nProc);\
+      c_off ## N3 = r0(a_off ## N4,a_off ## N3,nProc);\
+      c_off ## N4 = r0(a_off ## N1,a_off ## N4,nProc);\
+    }
+*/
+
+  #define rotR64_19(c_off, a_off) \
+      c_off ## N1 = r0_3(a_off ## N4,a_off ## N3);\
+      c_off ## N2 = r0_3(a_off ## N1,a_off ## N4);\
+      c_off ## N3 = r0_3(a_off ## N2,a_off ## N1);\
+      c_off ## N4 = r0_3(a_off ## N3,a_off ## N2);
+      
+  #define rotR64_61(c_off, a_off) \
+      c_off ## N1 = r0_13(a_off ## N2,a_off ## N1);\
+      c_off ## N2 = r0_13(a_off ## N3,a_off ## N2);\
+      c_off ## N3 = r0_13(a_off ## N4,a_off ## N3);\
+      c_off ## N4 = r0_13(a_off ## N1,a_off ## N4);
+      
+  #define rotR64_1(c_off, a_off) \
+      c_off ## N1 = r0_1(a_off ## N1,a_off ## N4);\
+      c_off ## N2 = r0_1(a_off ## N2,a_off ## N1);\
+      c_off ## N3 = r0_1(a_off ## N3,a_off ## N2);\
+      c_off ## N4 = r0_1(a_off ## N4,a_off ## N3);
+
+  #define rotR64_8(c_off, a_off) \
+      c_off ## N1 = r0_8(a_off ## N1,a_off ## N4);\
+      c_off ## N2 = r0_8(a_off ## N2,a_off ## N1);\
+      c_off ## N3 = r0_8(a_off ## N3,a_off ## N2);\
+      c_off ## N4 = r0_8(a_off ## N4,a_off ## N3);
+
+  #define rotR64_14(c_off, a_off) \
+      c_off ## N1 = r0_14(a_off ## N1,a_off ## N4);\
+      c_off ## N2 = r0_14(a_off ## N2,a_off ## N1);\
+      c_off ## N3 = r0_14(a_off ## N3,a_off ## N2);\
+      c_off ## N4 = r0_14(a_off ## N4,a_off ## N3);
+
+  #define rotR64_18(c_off, a_off) \
+      c_off ## N1 = r0_2(a_off ## N4,a_off ## N3);\
+      c_off ## N2 = r0_2(a_off ## N1,a_off ## N4);\
+      c_off ## N3 = r0_2(a_off ## N2,a_off ## N1);\
+      c_off ## N4 = r0_2(a_off ## N3,a_off ## N2);
+    
+  #define rotR64_41(c_off, a_off) \
+      c_off ## N1 = r0_9(a_off ## N3,a_off ## N2);\
+      c_off ## N2 = r0_9(a_off ## N4,a_off ## N3);\
+      c_off ## N3 = r0_9(a_off ## N1,a_off ## N4);\
+      c_off ## N4 = r0_9(a_off ## N2,a_off ## N1);
+
+  #define rotR64_28(c_off, a_off) \
+      c_off ## N1 = r0_12(a_off ## N4,a_off ## N3);\
+      c_off ## N2 = r0_12(a_off ## N1,a_off ## N4);\
+      c_off ## N3 = r0_12(a_off ## N2,a_off ## N1);\
+      c_off ## N4 = r0_12(a_off ## N3,a_off ## N2);
+
+  #define rotR64_34(c_off, a_off) \
+      c_off ## N1 = r0_2(a_off ## N3,a_off ## N2);\
+      c_off ## N2 = r0_2(a_off ## N4,a_off ## N3);\
+      c_off ## N3 = r0_2(a_off ## N1,a_off ## N4);\
+      c_off ## N4 = r0_2(a_off ## N2,a_off ## N1);
+      
+  #define rotR64_39(c_off, a_off) \
+      c_off ## N1 = r0_7(a_off ## N3,a_off ## N2);\
+      c_off ## N2 = r0_7(a_off ## N4,a_off ## N3);\
+      c_off ## N3 = r0_7(a_off ## N1,a_off ## N4);\
+      c_off ## N4 = r0_7(a_off ## N2,a_off ## N1);
+            
+
+  #define assign64Sqrt(offset_c, j)\
+    jProc = (short)(j*4);\
+    offset_c ## N1 = primeSqrt[(short)(jProc  )];\
+    offset_c ## N2 = primeSqrt[(short)(jProc+1)];\
+    offset_c ## N3 = primeSqrt[(short)(jProc+2)];\
+    offset_c ## N4 = primeSqrt[(short)(jProc+3)];
+
+  #define copyHash(offset_var, offset_hash)\
+    offset_var ## N1 = working[offset_hash]; \
+    offset_var ## N2 = working[(short)(offset_hash + 1)]; \
+    offset_var ## N3 = working[(short)(offset_hash + 2)]; \
+    offset_var ## N4 = working[(short)(offset_hash + 3)]; 
+
+   
+package com.ledger.wallet;
+
+import javacard.framework.JCSystem;
+
+public class SHA512 {
+  public SHA512() {    
+    working   = JCSystem.makeTransientShortArray((short)(2 + 8*4  //CNT, BLEN, Hi
+                                                         ), 
+                                                 JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
+    blk   = JCSystem.makeTransientShortArray((short)(64), //msg  128bytes, short encoded
+                                                 JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
+                                                 
+    init();
+  }
+
+  public byte 	getAlgorithm() {
+    return 0x61;
+  }
+
+  public  byte 	getLength() {
+    return 64;
+  }
+
+  public void 	reset()  {
+    init();
+  }
+
+  public void update(byte[] inBuff, short inOffset, short inLength) {
+    short blen = working [BLEN];
+    short cnt  = working[CNT];
+    
+    // --- append input data---
+    if ((short)(blen + inLength) >= BLOCK_SIZE) {
+      short r = (short)(BLOCK_SIZE - blen);
+      load(inBuff, inOffset, r);
+      hashBlock();
+      inOffset  += r;
+      inLength -= r;
+      working[BLEN] = 0;
+      cnt++;
+    }
+    // --- full input block
+    while (inLength >= BLOCK_SIZE) {
+      load(inBuff, inOffset, BLOCK_SIZE);
+      hashBlock();
+      cnt++;    
+      inOffset  += BLOCK_SIZE;
+      inLength -= BLOCK_SIZE;
+    } 
+    // --- store remainder  
+    load(inBuff, inOffset, inLength);
+
+    //save working
+    working[BLEN] = inLength;
+    working[CNT] = cnt;
+  }
+
+  public short doFinal(byte[] inBuff, short inOffset, short inLength, 
+                       byte[] outBuff, short outOffset) {    
+    //append
+    update(inBuff,inOffset,inLength);
+    zeroFillBlk();
+
+    //compute bits length: counter * 128 + BLEN*8;  (*128 ~~ << 7)
+    short cnt  = working[CNT];
+    short blen =  working[BLEN];
+    short bitsLen_H, bitsLen_L;
+    bitsLen_H = (short)(cnt>>6);
+    bitsLen_L = (short)((cnt<<10) + (blen<<3));
+
+    //last, with 80 pad and bits length
+    short off  = (short)(blen>>1);
+    if ((blen &1) == 0) {
+      blk[off] = (short)0x8000;
+    } else {
+      blk[off] |= 0x0080;
+    }
+    blen++;
+
+    if ((short)(128-blen) < 8) {
+      hashBlock();
+      zeroFillBlk();
+    }
+    blk[(short)62] = bitsLen_H;
+    blk[(short)63] = bitsLen_L;
+    hashBlock();
+    
+    for (short i = 0; i<32; i++) {
+      outBuff[(short)(outOffset+2*i  )] = (byte)(working[(short)(H0+i)] >> 8);
+      outBuff[(short)(outOffset+2*i+1)] = (byte)(working[(short)(H0+i)] & 0xFF);
+
+    }
+
+    // reset
+    
+    init();   
+
+    return getLength();
+  }
+
+  // ===================================================================== //
+
+  protected void init() {
+    short len = (short)working.length;
+    while(len != 0) {
+      len--;
+      working[len] = 0;
+    }
+    for (short i = 0; i < 32; i++) {
+      working[(short)(H0+i)] = HINIT[i];
+    }
+  }
+
+
+  /* load inLenght bytes
+   *
+   * precond: working[BLEN] +  inLength   <=  64 16bits
+   * @return size of loader block , <= BLOCK_SIZE
+   */
+  private void load(byte[] inBuff, short inOffset, short inLength) {
+    short blen =  working[BLEN];
+    short off  = (short)(blen>>1);
+
+    if (inLength == 0) return;
+
+    //missing Low
+    if ((blen&1) == 1) {
+      blk[off] |= inBuff[inOffset] & 0xff;
+      inOffset ++;      
+      inLength --;
+      off++;
+    }
+    //adding full 16bits
+    while (inLength > 1) {
+      blk[off] = (short)((inBuff[inOffset] <<8) | (inBuff[(short)(inOffset+1)] & 0xff));
+      inOffset += 2;
+      inLength -= 2;
+      off      ++;        
+    }
+    //adding last one, and set low part with  zero
+    if (inLength > 0) {
+      blk[off] = (short)(inBuff[inOffset] <<8);
+    }    
+  }
+
+  void zeroFillBlk() {
+    short blen =  working[BLEN];
+    if ((blen&1) == 1) {
+      blen ++;
+    }
+    short off  = (short)(blen>>1);
+    while (off<64) {
+      blk[off] = 0;
+      off++;
+    }
+  }
+
+  static private final short primeSqrt[] = {
+    (short)0x428a, (short)0x2f98, (short)0xd728, (short)0xae22, 
+    (short)0x7137, (short)0x4491, (short)0x23ef, (short)0x65cd, 
+    (short)0xb5c0, (short)0xfbcf, (short)0xec4d, (short)0x3b2f, 
+    (short)0xe9b5, (short)0xdba5, (short)0x8189, (short)0xdbbc, 
+    (short)0x3956, (short)0xc25b, (short)0xf348, (short)0xb538, 
+    (short)0x59f1, (short)0x11f1, (short)0xb605, (short)0xd019, 
+    (short)0x923f, (short)0x82a4, (short)0xaf19, (short)0x4f9b, 
+    (short)0xab1c, (short)0x5ed5, (short)0xda6d, (short)0x8118, 
+    (short)0xd807, (short)0xaa98, (short)0xa303, (short)0x0242, 
+    (short)0x1283, (short)0x5b01, (short)0x4570, (short)0x6fbe, 
+    (short)0x2431, (short)0x85be, (short)0x4ee4, (short)0xb28c, 
+    (short)0x550c, (short)0x7dc3, (short)0xd5ff, (short)0xb4e2, 
+    (short)0x72be, (short)0x5d74, (short)0xf27b, (short)0x896f, 
+    (short)0x80de, (short)0xb1fe, (short)0x3b16, (short)0x96b1, 
+    (short)0x9bdc, (short)0x06a7, (short)0x25c7, (short)0x1235, 
+    (short)0xc19b, (short)0xf174, (short)0xcf69, (short)0x2694, 
+    (short)0xe49b, (short)0x69c1, (short)0x9ef1, (short)0x4ad2, 
+    (short)0xefbe, (short)0x4786, (short)0x384f, (short)0x25e3, 
+    (short)0x0fc1, (short)0x9dc6, (short)0x8b8c, (short)0xd5b5, 
+    (short)0x240c, (short)0xa1cc, (short)0x77ac, (short)0x9c65, 
+    (short)0x2de9, (short)0x2c6f, (short)0x592b, (short)0x0275,
+    (short)0x4a74, (short)0x84aa, (short)0x6ea6, (short)0xe483,
+    (short)0x5cb0, (short)0xa9dc, (short)0xbd41, (short)0xfbd4, 
+    (short)0x76f9, (short)0x88da, (short)0x8311, (short)0x53b5, 
+    (short)0x983e, (short)0x5152, (short)0xee66, (short)0xdfab, 
+    (short)0xa831, (short)0xc66d, (short)0x2db4, (short)0x3210,
+    (short)0xb003, (short)0x27c8, (short)0x98fb, (short)0x213f, 
+    (short)0xbf59, (short)0x7fc7, (short)0xbeef, (short)0x0ee4, 
+    (short)0xc6e0, (short)0x0bf3, (short)0x3da8, (short)0x8fc2, 
+    (short)0xd5a7, (short)0x9147, (short)0x930a, (short)0xa725, 
+    (short)0x06ca, (short)0x6351, (short)0xe003, (short)0x826f,
+    (short)0x1429, (short)0x2967, (short)0x0a0e, (short)0x6e70, 
+    (short)0x27b7, (short)0x0a85, (short)0x46d2, (short)0x2ffc,
+    (short)0x2e1b, (short)0x2138, (short)0x5c26, (short)0xc926, 
+    (short)0x4d2c, (short)0x6dfc, (short)0x5ac4, (short)0x2aed, 
+    (short)0x5338, (short)0x0d13, (short)0x9d95, (short)0xb3df,
+    (short)0x650a, (short)0x7354, (short)0x8baf, (short)0x63de, 
+    (short)0x766a, (short)0x0abb, (short)0x3c77, (short)0xb2a8, 
+    (short)0x81c2, (short)0xc92e, (short)0x47ed, (short)0xaee6, 
+    (short)0x9272, (short)0x2c85, (short)0x1482, (short)0x353b, 
+    (short)0xa2bf, (short)0xe8a1, (short)0x4cf1, (short)0x0364,
+    (short)0xa81a, (short)0x664b, (short)0xbc42, (short)0x3001, 
+    (short)0xc24b, (short)0x8b70, (short)0xd0f8, (short)0x9791, 
+    (short)0xc76c, (short)0x51a3, (short)0x0654, (short)0xbe30, 
+    (short)0xd192, (short)0xe819, (short)0xd6ef, (short)0x5218, 
+    (short)0xd699, (short)0x0624, (short)0x5565, (short)0xa910,
+    (short)0xf40e, (short)0x3585, (short)0x5771, (short)0x202a,
+    (short)0x106a, (short)0xa070, (short)0x32bb, (short)0xd1b8, 
+    (short)0x19a4, (short)0xc116, (short)0xb8d2, (short)0xd0c8, 
+    (short)0x1e37, (short)0x6c08, (short)0x5141, (short)0xab53, 
+    (short)0x2748, (short)0x774c, (short)0xdf8e, (short)0xeb99,
+    (short)0x34b0, (short)0xbcb5, (short)0xe19b, (short)0x48a8,
+    (short)0x391c, (short)0x0cb3, (short)0xc5c9, (short)0x5a63, 
+    (short)0x4ed8, (short)0xaa4a, (short)0xe341, (short)0x8acb, 
+    (short)0x5b9c, (short)0xca4f, (short)0x7763, (short)0xe373, 
+    (short)0x682e, (short)0x6ff3, (short)0xd6b2, (short)0xb8a3, 
+    (short)0x748f, (short)0x82ee, (short)0x5def, (short)0xb2fc, 
+    (short)0x78a5, (short)0x636f, (short)0x4317, (short)0x2f60, 
+    (short)0x84c8, (short)0x7814, (short)0xa1f0, (short)0xab72, 
+    (short)0x8cc7, (short)0x0208, (short)0x1a64, (short)0x39ec, 
+    (short)0x90be, (short)0xfffa, (short)0x2363, (short)0x1e28, 
+    (short)0xa450, (short)0x6ceb, (short)0xde82, (short)0xbde9, 
+    (short)0xbef9, (short)0xa3f7, (short)0xb2c6, (short)0x7915, 
+    (short)0xc671, (short)0x78f2, (short)0xe372, (short)0x532b, 
+    (short)0xca27, (short)0x3ece, (short)0xea26, (short)0x619c, 
+    (short)0xd186, (short)0xb8c7, (short)0x21c0, (short)0xc207, 
+    (short)0xeada, (short)0x7dd6, (short)0xcde0, (short)0xeb1e, 
+    (short)0xf57d, (short)0x4f7f, (short)0xee6e, (short)0xd178, 
+    (short)0x06f0, (short)0x67aa, (short)0x7217, (short)0x6fba, 
+    (short)0x0a63, (short)0x7dc5, (short)0xa2c8, (short)0x98a6, 
+    (short)0x113f, (short)0x9804, (short)0xbef9, (short)0x0dae, 
+    (short)0x1b71, (short)0x0b35, (short)0x131c, (short)0x471b, 
+    (short)0x28db, (short)0x77f5, (short)0x2304, (short)0x7d84, 
+    (short)0x32ca, (short)0xab7b, (short)0x40c7, (short)0x2493, 
+    (short)0x3c9e, (short)0xbe0a, (short)0x15c9, (short)0xbebc, 
+    (short)0x431d, (short)0x67c4, (short)0x9c10, (short)0x0d4c, 
+    (short)0x4cc5, (short)0xd4be, (short)0xcb3e, (short)0x42b6, 
+    (short)0x597f, (short)0x299c, (short)0xfc65, (short)0x7e2a, 
+    (short)0x5fcb, (short)0x6fab, (short)0x3ad6, (short)0xfaec,
+    (short)0x6c44, (short)0x198c, (short)0x4a47, (short)0x5817
+  };
+
+  static private final short[] HINIT = {
+    (short)0x6a09, (short)0xe667, (short)0xf3bc, (short)0xc908, //H0
+    (short)0xbb67, (short)0xae85, (short)0x84ca, (short)0xa73b, //H1
+    (short)0x3c6e, (short)0xf372, (short)0xfe94, (short)0xf82b, //H2
+    (short)0xa54f, (short)0xf53a, (short)0x5f1d, (short)0x36f1, //H3
+    (short)0x510e, (short)0x527f, (short)0xade6, (short)0x82d1, //H4
+    (short)0x9b05, (short)0x688c, (short)0x2b3e, (short)0x6c1f, //H5
+    (short)0x1f83, (short)0xd9ab, (short)0xfb41, (short)0xbd6b, //H6
+    (short)0x5be0, (short)0xcd19, (short)0x137e, (short)0x2179  //H7
+  } ;
+  
+  private static short[]    working;
+  private static short[]    blk;
+ 
+  static private final short BLOCK_SIZE    = 128;
+
+  static private final short CNT  = 0;
+  static private final short BLEN = 1;
+  static private final short H0   = 2;
+  static private final short H1   = 6;
+  static private final short H2   = 10;
+  static private final short H3   = 14;
+  static private final short H4   = 18;
+  static private final short H5   = 22;
+  static private final short H6   = 26;
+  static private final short H7   = 30;
+
+  static private final short BLK = 34;  
+
+  protected static void hashBlock() {
+    decl(A); decl(B); decl(C); decl(D); decl(E); decl(F); decl(G); decl(H);
+    decl(T1); decl(T2); decl(T3); decl(T4); decl(T5); decl(R);
+    short adda = (short)0, addb = (short)0;
+    short addc, addxl, addxh;
+    byte addk;  
+    //short nProc;
+    short jProc;
+    short tmpOff;
+    //Load state
+    copyHash(A, H0);
+    copyHash(B, H1);
+    copyHash(C, H2);
+    copyHash(D, H3);
+    copyHash(E, H4);
+    copyHash(F, H5);
+    copyHash(G, H6);
+    copyHash(H, H7);
+
+    /*
+     * T1 = Sum_1_512(e) + Chg(e,f,g) + K_t_512 + Wt
+     * T2 = Sum_0_512(a) + Maj(abc) 
+     * h = g ;
+     * g = f;
+     * f = e;
+     * e = d + T1;
+     * d = c;
+     * c = b;
+     * b = a;
+     * a = T1 + T2;     
+     */
+    for (byte j = 0; j<80; j++) {  
+      /* for j in 16 to 63, Xj <- (Sigma_1_512( Xj-2) + Xj-7 + Sigma_0_512(Xj-15) + Xj-16 ). */
+      if (j >= 16) {
+        //sigma1(X[(j-2)  & 0xF])
+        assign64Cst(T2, Xj((short)((j-2) & 0xF)));    
+        sig512(T2,19,61,6); 
+        //+ X[(j-7)  & 0xF]
+        add64Cst(T2, Xj((short)((j-7)  & 0xF)));      
+        //+ sigma0(X[(j-15) & 0xF]
+        assign64Cst(T1, Xj((short)((j-15) & 0xF)));   
+        sig512(T1, 1, 8,7);
+        add64(T2, T1);                             
+        //+ X[(j-16) & 0xF])
+        add64Cst(T2, Xj((short)((j-16) & 0xF)));      
+        //assign
+        assign64ToCst(Xj((short)(j&0xF)),T2);           
+      }      
+
+      /// T1 =  H + sum1(E) + ch(E,F,G) + primeSqrt[j] + X[j&0xF];
+      //H
+      assign64(T1, H);               
+      //+sum1(E)
+      assign64(R,E);                 
+      sum512(R,14,18,41);
+      add64(T1, R);                  
+      //+ch(E,F,G)
+      ch(R, E,F,G);                  
+      add64(T1,R);                   
+      //+primeSqrt[j]
+      assign64Sqrt(R,j); 
+      add64(T1,R);                   
+      //+X[j&0xF]
+      add64Cst(T1,Xj((short)(j&0xF)));  
+      
+      /// T2 = sum0(A) + maj(A,B,C);
+      // sum0(A)
+      assign64(T2,A);                
+      sum512(T2,28,34,39); 
+      //+maj(A,B,C);
+      maj(R,A,B,C);                  
+      add64(T2,R);                   
+      
+      /*
+        H = G ;
+        G = F;
+        F = E;
+        E = D+T1;
+        D = C;
+        C = B;
+        B = A;
+        A = T1+T2;
+      */
+      assign64(H, G);
+      assign64(G, F);
+      assign64(F, E);
+      assign64(E, D);
+      assign64(D, C);
+      assign64(C, B);
+      assign64(B, A);
+      assign64(A, T1);
+      add64   (A, T2);
+      add64   (E, T1);
+    }    
+    add64H(H0, A); 
+    add64H(H1, B); 
+    add64H(H2, C); 
+    add64H(H3, D); 
+    add64H(H4, E); 
+    add64H(H5, F); 
+    add64H(H6, G); 
+    add64H(H7, H); 
+  }
+}
+

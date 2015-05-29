@@ -1,7 +1,7 @@
 /*
 *******************************************************************************    
-*   BTChip Bitcoin Hardware Wallet Java Card implementation
-*   (c) 2013 BTChip - 1BTChip7VfTnrPra5jqci7ejnMguuHogTn
+*   Java Card Bitcoin Hardware Wallet
+*   (c) 2015 Ledger
 *   
 *   This program is free software: you can redistribute it and/or modify
 *   it under the terms of the GNU Affero General Public License as
@@ -18,7 +18,7 @@
 *******************************************************************************   
 */    
 
-package com.btchip.applet.poc;
+package com.ledger.wallet;
 
 import javacard.framework.JCSystem;
 import javacard.framework.Util;
@@ -56,6 +56,7 @@ public class TC {
     protected static final short TX_B_HASH_OPTION = (short)0;
     protected static final short TX_B_OPERATION_PARAMETER = (short)(TX_B_HASH_OPTION + SIZEOF_U8);
     protected static final short TX_B_TRUSTED_INPUT_PROCESSED = (short)(TX_B_OPERATION_PARAMETER + SIZEOF_U8);
+    // REMOVE ME
     protected static final short TX_B_TRUSTED_INPUT_KEYSET = (short)(TX_B_TRUSTED_INPUT_PROCESSED + SIZEOF_U8);
     protected static final short TX_I_TRANSACTION_TARGET_INPUT = (short)(TX_B_TRUSTED_INPUT_KEYSET + SIZEOF_U8);
     protected static final short TX_I_REMAINING_IO = (short)(TX_I_TRANSACTION_TARGET_INPUT + SIZEOF_U32);
