@@ -9,5 +9,7 @@ A demonstration of this application and workaround if no proprietary API is pres
 
 A demonstration of Electrum integration with the standard Ledger Wallet Plug-in is also available at https://www.youtube.com/watch?v=Vq11XgLT1Dw
 
+You can also check if your Java Card is supported and its performance with the Eligibility applet available at https://github.com/ledgerhq/ledger-javacard-eligibility
+
 For any question or commercial licensing, reach us at hello@ledger.fr
 
