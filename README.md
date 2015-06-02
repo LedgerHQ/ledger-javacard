@@ -5,7 +5,9 @@ This applet is an implementation of the Ledger Wallet Hardware Wallet described 
 
 It is compatible with the core API with a few limitations if not using a proprietary API to recover public keys - the public key cache needs to be provisioned from the client side
 
-A sample modification of the client API to do that transparently will be available shortly
+A demonstration of this application and workaround if no proprietary API is present is provided in the Python API available at https://github.com/LedgerHQ/btchip-python
+
+A demonstration of Electrum integration with the standard Ledger Wallet Plug-in is also available at https://www.youtube.com/watch?v=Vq11XgLT1Dw
 
 For any question or commercial licensing, reach us at hello@ledger.fr
 
