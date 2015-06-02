@@ -18,6 +18,8 @@
 *******************************************************************************   
 */    
 
+// TODO : Add storage of change address
+
 package com.ledger.wallet;
 
 import javacard.framework.APDU;
@@ -172,7 +174,121 @@ public class LedgerWalletApplet extends Applet {
     	Crypto.digestScratch.doFinal(scratch256, (short)21, (short)32, scratch256, (short)21);
     	return Base58.encode(scratch256, (short)0, (short)25, out, outOffset, scratch256, (short)100);
     }
+
+    // following method is only used if no proprietary API is available
+    private static void handleHasCachedPublicKey(APDU apdu) throws ISOException {
+    	byte[] buffer = apdu.getBuffer();
+    	apdu.setIncomingAndReceive();
+    	short offset = ISO7816.OFFSET_CDATA;
+    	byte derivationSize = buffer[offset++];
+    	if (derivationSize > MAX_DERIVATION_PATH) {
+    		ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+    	}
+    	boolean result = Bip32Cache.hasPublic(buffer, offset, derivationSize);
+    	buffer[0] = (result ? (byte)0x01 : (byte)0x00);
+    	apdu.setOutgoingAndSend((short)0, (short)1);     
+    }
     
+    // following method is only used if no proprietary API is available
+    private static void handleStorePublicKey(APDU apdu) throws ISOException {
+    	byte[] buffer = apdu.getBuffer();
+    	apdu.setIncomingAndReceive();
+    	short offset = ISO7816.OFFSET_CDATA;
+    	byte derivationSize = buffer[offset++];
+    	byte i;
+    	if (Crypto.keyAgreement == null) {
+    		ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+    	}
+    	if (derivationSize > MAX_DERIVATION_PATH) {
+    		ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+    	}
+    	// Unwrap the initial seed
+        Crypto.initCipher(chipKey, false);
+        Crypto.blobEncryptDecrypt.doFinal(masterDerived, (short)0, (short)DEFAULT_SEED_LENGTH, scratch256, (short)0);
+        // Derive all components
+        i = Bip32Cache.copyPrivateBest(buffer, (short)(ISO7816.OFFSET_CDATA + 1), derivationSize, scratch256, (short)0);
+        for (; i<derivationSize; i++) {
+        	Util.arrayCopyNonAtomic(buffer, (short)(offset + 4 * i), scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
+        	if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
+        		if (!Bip32Cache.setPublicIndex(buffer, (short)(ISO7816.OFFSET_CDATA + 1), i)) {
+        			ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
+        		}
+        	}
+        	if (!Bip32.derive(buffer)) {
+        		ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        	}
+        	Bip32Cache.storePrivate(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1), scratch256);
+        }
+        offset += (short)(derivationSize * 4);
+        // Sign random data with the derived private key
+        Crypto.random.generateData(scratch256, (short)32, (short)32);
+        Crypto.signTransientPrivate(scratch256, (short)0, scratch256, (short)32, scratch256, (short)64);
+        if (Crypto.verifyPublic(buffer, offset, scratch256, (short)32, scratch256, (short)64)) {
+        	// Signature is valid, store the public key
+        	Bip32Cache.storePublic(buffer, (short)(ISO7816.OFFSET_CDATA + 1), derivationSize, buffer, offset);
+        }
+        else {
+        	ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        }
+    }
+    
+    // following method is only used if no proprietary API is available
+    private static void handleGetHalfPublicKey(APDU apdu) throws ISOException {
+    	byte[] buffer = apdu.getBuffer();
+    	apdu.setIncomingAndReceive();
+    	short offset = ISO7816.OFFSET_CDATA;
+    	byte derivationSize = buffer[offset++];
+    	byte i;
+    	if (Crypto.keyAgreement == null) {
+    		ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+    	}
+    	if (derivationSize > MAX_DERIVATION_PATH) {
+    		ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+    	}
+    	// Unwrap the initial seed
+        Crypto.initCipher(chipKey, false);
+        Crypto.blobEncryptDecrypt.doFinal(masterDerived, (short)0, (short)DEFAULT_SEED_LENGTH, scratch256, (short)0);
+        // Derive all components
+        i = Bip32Cache.copyPrivateBest(buffer, (short)(ISO7816.OFFSET_CDATA + 1), derivationSize, scratch256, (short)0);
+        for (; i<derivationSize; i++) {
+        	Util.arrayCopyNonAtomic(buffer, (short)(offset + 4 * i), scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
+        	if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
+        		if (!Bip32Cache.setPublicIndex(buffer, (short)(ISO7816.OFFSET_CDATA + 1), i)) {
+        			ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
+        		}
+        	}
+        	if (!Bip32.derive(buffer)) {
+        		ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        	}
+        	Bip32Cache.storePrivate(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1), scratch256);
+        }
+        Crypto.initTransientPrivate(scratch256, (short)0);
+        Crypto.keyAgreement.init(Crypto.transientPrivate);
+        Crypto.keyAgreement.generateSecret(Secp256k1.SECP256K1_G, (short)0, (short)Secp256k1.SECP256K1_G.length, scratch256, (short)32);
+        // Finally output
+        // Random data getting signed
+        offset = 0;
+        Crypto.random.generateData(buffer, (short)offset, (short)32);
+        offset += 32;
+        // X component of the public key
+        Util.arrayCopyNonAtomic(scratch256, (short)32, buffer, offset, (short)32);
+        offset += 32;
+        // Signature to recover Y on the host side
+        Crypto.signTransientPrivate(scratch256, (short)0, buffer, (short)0, buffer, offset);
+        offset += buffer[(short)(offset + 1)] + 2;
+        Crypto.digestScratch.doFinal(buffer, (short)0, (short)32, buffer, (short)0);
+        apdu.setOutgoingAndSend((short)0, offset);            	
+    }
+    
+    private static void handleGetFeatures(APDU apdu) throws ISOException {
+    	byte[] buffer = apdu.getBuffer();
+    	buffer[0] = (byte)0;
+    	if (proprietaryAPI != null) {
+    		buffer[0] |= JC_FEATURE_HAS_PROPRIETARY_API;
+    	}
+    	apdu.setOutgoingAndSend((short)0, (short)1);
+    }
+
     private static void handleGetWalletPublicKey(APDU apdu) throws ISOException {
     	byte[] buffer = apdu.getBuffer();
     	short offset = ISO7816.OFFSET_CDATA;
@@ -189,11 +305,13 @@ public class LedgerWalletApplet extends Applet {
         for (; i<derivationSize; i++) {
         	Util.arrayCopyNonAtomic(buffer, (short)(offset + 4 * i), scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
         	if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
-        		if (!Bip32Cache.setPublicIndex(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1))) {
+        		if (!Bip32Cache.setPublicIndex(buffer, (short)(ISO7816.OFFSET_CDATA + 1), i)) {
         			ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
         		}
         	}
-        	Bip32.derive(buffer);
+        	if (!Bip32.derive(buffer)) {
+        		ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        	}
         	Bip32Cache.storePrivate(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1), scratch256);
         }
         if (proprietaryAPI == null) {
@@ -222,7 +340,7 @@ public class LedgerWalletApplet extends Applet {
         Util.arrayCopyNonAtomic(buffer, (short)200, buffer, offset, (short)32);
         offset += 32;
         apdu.setOutgoingAndSend((short)0, offset);            	
-    }
+    }    
     
     private static void handleTrustedInput(APDU apdu) throws ISOException {
         byte[] buffer = apdu.getBuffer();
@@ -415,12 +533,14 @@ public class LedgerWalletApplet extends Applet {
         		for (; i<addressLength; i++) {
         			Util.arrayCopyNonAtomic(buffer, (short)(offset + 4 * i), scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
         			if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
-        				if (!Bip32Cache.setPublicIndex(buffer, (short)(offset + 4 * i), (byte)(i + 1))) {
+        				if (!Bip32Cache.setPublicIndex(buffer, offset, i)) {
         					ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
         				}	
         			}            	
-        			Bip32.derive(buffer);
-        			Bip32Cache.storePrivate(buffer, (short)(offset + 4 * i), (byte)(i + 1), scratch256);
+                	if (!Bip32.derive(buffer)) {
+                		ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+                	}
+        			Bip32Cache.storePrivate(buffer, offset, (byte)(i + 1), scratch256);
         		}
         		if (proprietaryAPI == null) {
         			if (!Bip32Cache.setPublicIndex(buffer, offset, addressLength)) {
@@ -566,11 +686,13 @@ public class LedgerWalletApplet extends Applet {
         for (; i<derivationSize; i++) {
         	Util.arrayCopyNonAtomic(buffer, offset, scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
         	if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
-        		if (!Bip32Cache.setPublicIndex(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1))) {
+        		if (!Bip32Cache.setPublicIndex(buffer, (short)(ISO7816.OFFSET_CDATA + 1), i)) {
         			ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
         		}
         	}        	
-        	Bip32.derive(buffer);
+        	if (!Bip32.derive(buffer)) {
+        		ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+        	}
         	Bip32Cache.storePrivate(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1), scratch256);
         	offset += (short)4;
         }
@@ -612,6 +734,7 @@ public class LedgerWalletApplet extends Applet {
         if (buffer[ISO7816.OFFSET_P1] != P1_REGULAR_SETUP) {
         	ISOException.throwIt(ISO7816.SW_INCORRECT_P1P2);
         }
+        Bip32Cache.reset();
         supportedModes = buffer[offset++];
         for (byte i=0; i<(byte)AVAILABLE_MODES.length; i++) {
         	if ((supportedModes & AVAILABLE_MODES[i]) != 0) {
@@ -689,7 +812,7 @@ public class LedgerWalletApplet extends Applet {
         	offset += (short)16;
         }
         apdu.setOutgoingAndSend((short)0, offset);
-        setup = TC.TRUE;
+        setup = TC.TRUE;        
     }
     
     private static void handleVerifyPin(APDU apdu) throws ISOException {
@@ -827,7 +950,50 @@ public class LedgerWalletApplet extends Applet {
                 clearScratch();
             }
             return;
-        }        
+        }
+        else
+        if (buffer[ISO7816.OFFSET_CLA] == CLA_BTC_JC_EXTENSIONS) { // the following APDUs are only called if no proprietary API is available
+        	clearScratch();
+        	try {
+        		switch(buffer[ISO7816.OFFSET_INS]) {
+        			case INS_EXT_GET_HALF_PUBLIC_KEY:
+        				checkAccess(true);
+        				handleGetHalfPublicKey(apdu);
+        				break;           
+        			case INS_EXT_PUT_PUBLIC_KEY_CACHE:
+        				handleStorePublicKey(apdu);
+        				break;
+        			case INS_EXT_HAS_PUBLIC_KEY_CACHE:
+        				handleHasCachedPublicKey(apdu);
+        				break;
+        			case INS_EXT_GET_FEATURES:
+        				handleGetFeatures(apdu);
+        				break;
+        				
+        			default:
+        				ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
+        		}
+        	}
+        	catch(Exception e) {
+        		//e.printStackTrace();
+        		// Abort the current transaction if an exception is thrown
+        		TC.clear();
+        		if (e instanceof CardRuntimeException) {
+        			throw ((CardRuntimeException)e);
+        		}
+        		else {
+        			ISOException.throwIt(ISO7816.SW_UNKNOWN);
+        		}
+        	}
+        	finally {
+        		clearScratch();
+        	}
+        	return;
+        }
+        else {
+        	ISOException.throwIt(ISO7816.SW_CLA_NOT_SUPPORTED);
+        }
+        	
     }
 
     public static void install (byte bArray[], short bOffset, byte bLength) throws ISOException {
@@ -879,6 +1045,7 @@ public class LedgerWalletApplet extends Applet {
     private static final byte PRIVATE_KEY_S_LENGTH = 32;
     
     private static final byte CLA_BTC = (byte)0xE0;
+    private static final byte CLA_BTC_JC_EXTENSIONS = (byte)0xF0;
     private static final byte INS_SETUP = (byte)0x20;
     private static final byte INS_SET_USER_KEYCARD = (byte)0x10;
     private static final byte INS_SETUP_SECURE_SCREEN = (byte)0x12;
@@ -901,9 +1068,13 @@ public class LedgerWalletApplet extends Applet {
     private static final byte INS_GET_ATTESTATION = (byte)0xC2;
     private static final byte INS_GET_FIRMWARE_VERSION = (byte)0xC4;   
     		
-    private static final byte INS_GENERATE = (byte)0x20;
     private static final byte INS_SET_CONTACTLESS_LIMIT = (byte)0xA4;
     private static final byte INS_GET_CONTACTLESS_LIMIT = (byte)0xA6;
+    
+    private static final byte INS_EXT_GET_HALF_PUBLIC_KEY = (byte)0x20;
+    private static final byte INS_EXT_PUT_PUBLIC_KEY_CACHE = (byte)0x22;
+    private static final byte INS_EXT_HAS_PUBLIC_KEY_CACHE = (byte)0x24;
+    private static final byte INS_EXT_GET_FEATURES = (byte)0x26;
 
     private static final byte P1_REGULAR_SETUP = (byte)0x00;
     
@@ -955,6 +1126,8 @@ public class LedgerWalletApplet extends Applet {
     private static final byte SEED_NOT_TYPED = (byte)0x00;
     
     private static final byte AVAILABLE_MODES[] = { MODE_WALLET, MODE_RELAXED_WALLET, MODE_SERVER, MODE_DEVELOPER };
+    
+    private static final byte JC_FEATURE_HAS_PROPRIETARY_API = (byte)0x01;
         
     public static byte[] scratch256;
     private static OwnerPIN transactionPin;
@@ -964,7 +1137,7 @@ public class LedgerWalletApplet extends Applet {
     private static byte secondaryPinSize;
     private static byte setup;
     private static byte limitsSet;
-    private static DESKey chipKey;
+    protected static DESKey chipKey;
     protected static DESKey trustedInputKey;
     protected static DESKey developerKey;
     private static byte supportedModes;

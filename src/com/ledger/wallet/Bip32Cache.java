@@ -44,7 +44,7 @@ public class Bip32Cache {
 		privateComponent = new byte[64];
 		publicComponent = new byte[65];
 		path = new byte[40];
-		lastCacheIndex = JCSystem.makeTransientByteArray((short)1, JCSystem.CLEAR_ON_DESELECT);
+		pathLength = INDEX_NOT_AVAILABLE;
 	}
 	
 	public static void init() {
@@ -52,12 +52,19 @@ public class Bip32Cache {
 		for (short i=0; i<CACHE_SIZE; i++) {
 			cache[i] = new Bip32Cache();
 		}
+		lastCacheIndex = JCSystem.makeTransientByteArray((short)1, JCSystem.CLEAR_ON_DESELECT);
+	}
+	
+	public static void reset() {
+		for (short i=0; i<CACHE_SIZE; i++) {
+			cache[i].pathLength = INDEX_NOT_AVAILABLE;
+		}
 	}
 	
 	private static Bip32Cache findFree() {
 		Bip32Cache result = null;
 		for (short i=0; i<CACHE_SIZE; i++) {
-			if (cache[i].pathLength == 0) {
+			if (cache[i].pathLength == INDEX_NOT_AVAILABLE) {
 				result = cache[i];
 				break;
 			}
@@ -68,7 +75,7 @@ public class Bip32Cache {
 			result = cache[lastIndex];
 		}
 		// Recycle
-		result.pathLength = (byte)0;
+		result.pathLength = INDEX_NOT_AVAILABLE;
 		result.hasPrivate = false;
 		result.hasPublic = false;
 		return result;
@@ -92,23 +99,24 @@ public class Bip32Cache {
 		if (!((cache != null) && cache.hasPrivate)) {
 			if (cache == null) {
 				cache = findFree();
+				cache.pathLength = pathLength;
+				Util.arrayCopy(path, pathOffset, cache.path, (short)0, (short)(pathLength * 4));				
 			}
-			cache.pathLength = pathLength;
-			Util.arrayCopy(path, pathOffset, cache.path, (short)0, (short)(pathLength * 4));
-			Util.arrayCopy(privateComponent, (short)0, cache.privateComponent, (short)0, (short)64);
+	        Crypto.initCipher(LedgerWalletApplet.chipKey, true);			
+	        Crypto.blobEncryptDecrypt.doFinal(privateComponent, (short)0, (short)64, cache.privateComponent, (short)0);			
 			cache.hasPrivate = true;		
 		}
 	}
 	
-	public static void storePublic(byte[] path, short pathOffset, byte pathLength, byte[] publicComponent) {
+	public static void storePublic(byte[] path, short pathOffset, byte pathLength, byte[] publicComponent, short publicComponentOffset) {
 		Bip32Cache cache = findPath(path, pathOffset, pathLength, false);
 		if (!((cache != null) && cache.hasPublic)) {
 			if (cache == null) {
 				cache = findFree();
+				cache.pathLength = pathLength;
+				Util.arrayCopy(path, pathOffset, cache.path, (short)0, (short)(pathLength * 4));				
 			}
-			cache.pathLength = pathLength;
-			Util.arrayCopy(path, pathOffset, cache.path, (short)0, (short)(pathLength * 4));
-			Util.arrayCopy(publicComponent, (short)0, cache.publicComponent, (short)0, (short)65);
+			Util.arrayCopy(publicComponent, publicComponentOffset, cache.publicComponent, (short)0, (short)65);
 			cache.hasPublic = true;
 		}		
 	}
@@ -117,11 +125,20 @@ public class Bip32Cache {
 		for (byte i=pathLength; i>0; i--) {
 			Bip32Cache cache = findPath(path, pathOffset, i, false);
 			if ((cache != null) && (cache.hasPrivate)) {
-				Util.arrayCopyNonAtomic(cache.privateComponent, (short)0, target, targetOffset, (short)64);
+		        Crypto.initCipher(LedgerWalletApplet.chipKey, false);			
+		        Crypto.blobEncryptDecrypt.doFinal(cache.privateComponent, (short)0, (short)64, target, targetOffset);			
 				return i;
 			}					
 		}
 		return (byte)0;
+	}
+	
+	public static boolean hasPublic(byte[] path, short pathOffset, byte pathLength) {
+		Bip32Cache cache = findPath(path, pathOffset, pathLength, false);
+		if ((cache == null) || (!cache.hasPublic)) {
+			return false;
+		}		
+		return true;				
 	}
 	
 	public static boolean setPublicIndex(byte[] path, short pathOffset, byte pathLength) {
@@ -143,7 +160,6 @@ public class Bip32Cache {
 			return false;
 		}
 		Util.arrayCopyNonAtomic(lastCache.publicComponent, (short)0, target, targetOffset, (short)65);
-		return false;
+		return true;
 	}
-	
 }

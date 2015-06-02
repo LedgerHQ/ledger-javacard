@@ -24,7 +24,9 @@ import javacard.security.CryptoException;
 import javacard.security.DESKey;
 import javacard.security.ECKey;
 import javacard.security.ECPrivateKey;
+import javacard.security.ECPublicKey;
 import javacard.security.HMACKey;
+import javacard.security.KeyAgreement;
 import javacard.security.KeyBuilder;
 import javacard.security.KeyPair;
 import javacard.security.MessageDigest;
@@ -99,14 +101,31 @@ public class Crypto {
         catch(CryptoException e) {
         	signatureHmac = null;
         }
-        
+        // Optional initializations if no proprietary API is available
+        try {
+        	keyAgreement = KeyAgreement.getInstance(KeyAgreement.ALG_EC_SVDP_DH_PLAIN, false);
+        }
+        catch(CryptoException e) {
+        	// Not having the KeyAgreement API is manageable if there is a proprietary API to recover public keys
+        	// Otherwise there should be a remote secure oracle performing public derivations and sending back results
+        }
+        try {
+            publicKey = (ECPublicKey)KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PUBLIC, KeyBuilder.LENGTH_EC_FP_256, false);
+            Secp256k1.setCommonCurveParameters(publicKey);        	
+        }
+        catch(CryptoException e) {
+        }                
     }
     
-    public static void signTransientPrivate(byte[] keyBuffer, short keyOffset, byte[] dataBuffer, short dataOffset, byte[] targetBuffer, short targetOffset) {
+    public static void initTransientPrivate(byte[] keyBuffer, short keyOffset) {
         if (transientPrivateTransient) {
         	Secp256k1.setCommonCurveParameters(transientPrivate);
         }
-        transientPrivate.setS(keyBuffer, keyOffset, (short)32);
+        transientPrivate.setS(keyBuffer, keyOffset, (short)32);    	
+    }
+    
+    public static void signTransientPrivate(byte[] keyBuffer, short keyOffset, byte[] dataBuffer, short dataOffset, byte[] targetBuffer, short targetOffset) {
+    	initTransientPrivate(keyBuffer, keyOffset);
         Util.arrayFillNonAtomic(keyBuffer, keyOffset, (short)32, (byte)0x00);
         // recheck with the target platform, initializing once instead might be possible and save a few flash write
         // (this part is unspecified in the Java Card API)
@@ -117,14 +136,26 @@ public class Crypto {
         }
     }
     
+    // following method is only used if no proprietary API is available
+    public static boolean verifyPublic(byte[] keyBuffer, short keyOffset, byte[] dataBuffer, short dataOffset, byte[] signatureBuffer, short signatureOffset) {
+    	publicKey.setW(keyBuffer, keyOffset, (short)65);
+    	signature.init(publicKey, Signature.MODE_VERIFY);
+    	try {
+    		return signature.verify(dataBuffer, dataOffset, (short)32, signatureBuffer, signatureOffset, (short)(signatureBuffer[(short)(signatureOffset + 1)] + 2));
+    	}
+    	catch(Exception e) {
+    		return false;
+    	}
+    }
+    
     public static void initCipher(DESKey key, boolean encrypt) {
         blobEncryptDecrypt.init(key, (encrypt ? Cipher.MODE_ENCRYPT : Cipher.MODE_DECRYPT), IV_ZERO, (short)0, (short)IV_ZERO.length);
     }
     
     private static final byte[] IV_ZERO = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
-    protected static ECPrivateKey transientPrivate;
-    private static boolean transientPrivateTransient;
+    protected static ECPrivateKey transientPrivate;    
+    private static boolean transientPrivateTransient;    
     private static Signature signature;
     protected static Signature signatureHmac;
     protected static HMACKey keyHmac;
@@ -135,5 +166,10 @@ public class Crypto {
     protected static MessageDigest digestSha512;
     protected static SHA512 sha512;
     protected static RandomData random;
-    protected static Cipher blobEncryptDecrypt;   
+    protected static Cipher blobEncryptDecrypt;
+    
+    
+    // following variables are only used if no proprietary API is available
+    protected static ECPublicKey publicKey; 
+    protected static KeyAgreement keyAgreement;
 }
