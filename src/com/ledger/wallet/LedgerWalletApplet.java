@@ -957,7 +957,10 @@ public class LedgerWalletApplet extends Applet {
         	try {
         		switch(buffer[ISO7816.OFFSET_INS]) {
         			case INS_EXT_GET_HALF_PUBLIC_KEY:
-        				checkAccess(true);
+        				// Allow access to the cache while a transaction is being signed to avoid altering the flow too much
+        				if (TC.ctx[TC.TX_B_TRANSACTION_STATE] != Transaction.STATE_SIGN_READY) {
+        					checkAccess(false);
+        				}
         				handleGetHalfPublicKey(apdu);
         				break;           
         			case INS_EXT_PUT_PUBLIC_KEY_CACHE:
