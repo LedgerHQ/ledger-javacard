@@ -35,6 +35,9 @@ public class Bip32 {
 	private static final short OFFSET_BLOCK = (short)127;
 	    
     // seed : scratch, offset 0 -> result in masterDerived 
+	// depending on the implementation, if a native transient HMAC is used, the key size might be fixed
+	// on the first call
+	// if that's the case, power cycle / deselect between initial seed derivation and all other key derivations
 	public static void deriveSeed(byte seedLength) {
 		if (Crypto.signatureHmac != null) {
 			Crypto.keyHmac.setKey(BITCOIN_SEED, (short)0, (short)BITCOIN_SEED.length);
