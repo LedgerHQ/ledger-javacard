@@ -114,7 +114,7 @@ public class TestTransaction extends AbstractTest {
 		BitcoinTransaction txout_1 = new BitcoinTransaction(new ByteArrayInputStream(TXOUT_1));
 		BTChipDongle.BTChipInput input1 = dongle.getTrustedInput(txin_1, 1);
 		byte[] prevout = Arrays.copyOfRange(input1.getValue(), 4, 4 + 36);
-		input1 = new BTChipDongle.BTChipInput(prevout, false);
+		input1 = dongle.createInput(prevout, false);
 		try {
 			dongle.startUntrustedTransaction(
 				true, 
@@ -475,7 +475,7 @@ public class TestTransaction extends AbstractTest {
 		BitcoinTransaction txout_1 = new BitcoinTransaction(new ByteArrayInputStream(TXOUT_3));		
 		BTChipDongle.BTChipInput input1 = dongle.getTrustedInput(txin_1, 0);
 		byte[] prevout = Arrays.copyOfRange(input1.getValue(), 4, 4 + 36);
-		input1 = new BTChipDongle.BTChipInput(prevout, false);
+		input1 = dongle.createInput(prevout, false);
 		dongle.startUntrustedTransaction(
 			true, 
 			0, 

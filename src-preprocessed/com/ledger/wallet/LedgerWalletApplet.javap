@@ -431,6 +431,62 @@ public class LedgerWalletApplet extends Applet implements AppletEvent {
     }
 #endif    
 
+    private static void handleHashOutputFullChange(APDU apdu) throws ISOException {
+        byte[] buffer = apdu.getBuffer(); 
+        short offset = (short)(ISO7816.OFFSET_CDATA);
+        apdu.setIncomingAndReceive();
+        checkInterfaceConsistency();
+        if (TC.ctx[TC.TX_B_TRANSACTION_STATE] != Transaction.STATE_PRESIGN_READY) {
+            ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+        }
+        byte i;
+        byte addressLength = buffer[offset];
+        if (TC.ctx[TC.TX_Z_CHANGE_ACCEPTED] != (byte)0x01) {
+            ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
+        }
+        if (addressLength > MAX_DERIVATION_PATH) {
+            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+        }
+        offset++;
+        // Unwrap the initial seed
+        Crypto.initCipher(chipKey, false);
+        Crypto.blobEncryptDecrypt.doFinal(masterDerived, (short)0, (short)DEFAULT_SEED_LENGTH, scratch256, (short)0);            
+        // Derive all components            
+        i = Bip32Cache.copyPrivateBest(buffer, offset, addressLength, scratch256, (short)0);
+        for (; i<addressLength; i++) {
+            Util.arrayCopyNonAtomic(buffer, (short)(offset + 4 * i), scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
+            if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
+                if (!Bip32Cache.setPublicIndex(buffer, offset, i)) {
+                    ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
+                }   
+            }               
+            if (!Bip32.derive(buffer)) {
+                ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+            }
+            Bip32Cache.storePrivate(buffer, offset, (byte)(i + 1), scratch256);
+        }
+        if (proprietaryAPI == null) {
+            if (!Bip32Cache.setPublicIndex(buffer, offset, addressLength)) {
+                ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
+            }
+            Bip32Cache.copyLastPublic(scratch256, (short)0);
+        }
+        else {
+            proprietaryAPI.getUncompressedPublicPoint(scratch256, (short)0, scratch256, (short)0);
+        }
+        // Compute the change address - significant performance hit if not using a native RIPEMD160
+        AddressUtils.compressPublicKey(scratch256, (short)0);
+        Crypto.digestScratch.doFinal(scratch256, (short)0, (short)33, scratch256, (short)0);                
+        if (Crypto.digestRipemd != null) {
+            Crypto.digestRipemd.doFinal(scratch256, (short)0, (short)32, TC.ctx, (short)(TC.TX_A_CHANGE_ADDRESS + 1));
+        }
+        else {
+            Ripemd160.hash32(scratch256, (short)0, TC.ctx, (short)(TC.TX_A_CHANGE_ADDRESS + 1), scratch256, (short)33);
+        }
+        TC.ctx[TC.TX_Z_CHANGE_ACCEPTED] = (byte)0x00;
+        TC.ctx[TC.TX_Z_CHANGE_INITIALIZED] = (byte)0x01;
+    }
+
     private static void handleHashOutputFull(APDU apdu) throws ISOException {
         // Stack size just fits JCOP 2.4.2 when deriving - be careful when adding local variables
         byte[] buffer = apdu.getBuffer(); 
@@ -439,55 +495,6 @@ public class LedgerWalletApplet extends Applet implements AppletEvent {
         checkInterfaceConsistency();
         if (TC.ctx[TC.TX_B_TRANSACTION_STATE] != Transaction.STATE_PRESIGN_READY) {
             ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
-        }
-        if (buffer[ISO7816.OFFSET_P1] == P1_FINALIZE_CHANGEINFO) {
-            byte i;
-            byte addressLength = buffer[offset];
-            if (TC.ctx[TC.TX_Z_CHANGE_ACCEPTED] != (byte)0x01) {
-                ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
-            }
-            if (addressLength > MAX_DERIVATION_PATH) {
-                ISOException.throwIt(ISO7816.SW_DATA_INVALID);
-            }
-            offset++;
-            // Unwrap the initial seed
-            Crypto.initCipher(chipKey, false);
-            Crypto.blobEncryptDecrypt.doFinal(masterDerived, (short)0, (short)DEFAULT_SEED_LENGTH, scratch256, (short)0);            
-            // Derive all components            
-            i = Bip32Cache.copyPrivateBest(buffer, offset, addressLength, scratch256, (short)0);
-            for (; i<addressLength; i++) {
-                Util.arrayCopyNonAtomic(buffer, (short)(offset + 4 * i), scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
-                if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
-                    if (!Bip32Cache.setPublicIndex(buffer, offset, i)) {
-                        ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
-                    }   
-                }               
-                if (!Bip32.derive(buffer)) {
-                    ISOException.throwIt(ISO7816.SW_WRONG_DATA);
-                }
-                Bip32Cache.storePrivate(buffer, offset, (byte)(i + 1), scratch256);
-            }
-            if (proprietaryAPI == null) {
-                if (!Bip32Cache.setPublicIndex(buffer, offset, addressLength)) {
-                    ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
-                }
-                Bip32Cache.copyLastPublic(scratch256, (short)0);
-            }
-            else {
-                proprietaryAPI.getUncompressedPublicPoint(scratch256, (short)0, scratch256, (short)0);
-            }
-            // Compute the change address - significant performance hit if not using a native RIPEMD160
-            AddressUtils.compressPublicKey(scratch256, (short)0);
-            Crypto.digestScratch.doFinal(scratch256, (short)0, (short)33, scratch256, (short)0);                
-            if (Crypto.digestRipemd != null) {
-                Crypto.digestRipemd.doFinal(scratch256, (short)0, (short)32, TC.ctx, (short)(TC.TX_A_CHANGE_ADDRESS + 1));
-            }
-            else {
-                Ripemd160.hash32(scratch256, (short)0, TC.ctx, (short)(TC.TX_A_CHANGE_ADDRESS + 1), scratch256, (short)33);
-            }
-            TC.ctx[TC.TX_Z_CHANGE_ACCEPTED] = (byte)0x00;
-            TC.ctx[TC.TX_Z_CHANGE_INITIALIZED] = (byte)0x01;
-            return;
         }
         // Update the main hash and authorization hash
         Crypto.digestFull.update(buffer, offset, (short)(buffer[ISO7816.OFFSET_LC] & 0xff));        
@@ -678,7 +685,7 @@ public class LedgerWalletApplet extends Applet implements AppletEvent {
         apdu.setOutgoingAndSend((short)0, outOffset);                        
     }
 
-    private static void handleHashSign(APDU apdu) throws ISOException {    	
+    private static void handleHashSignDerive(APDU apdu) throws ISOException {
         byte[] buffer = apdu.getBuffer();
         short offset = ISO7816.OFFSET_CDATA;
         byte i;
@@ -687,29 +694,37 @@ public class LedgerWalletApplet extends Applet implements AppletEvent {
         if (TC.ctx[TC.TX_B_TRANSACTION_STATE] != Transaction.STATE_SIGN_READY) {
             ISOException.throwIt(ISO7816.SW_CONDITIONS_NOT_SATISFIED);
         }
-    	byte derivationSize = buffer[offset++];
-    	if (derivationSize > MAX_DERIVATION_PATH) {
-    		ISOException.throwIt(ISO7816.SW_DATA_INVALID);
-    	}
-    	// Unwrap the initial seed
+        byte derivationSize = buffer[offset++];
+        if (derivationSize > MAX_DERIVATION_PATH) {
+            ISOException.throwIt(ISO7816.SW_DATA_INVALID);
+        }
+        // Unwrap the initial seed
         Crypto.initCipher(chipKey, false);
         Crypto.blobEncryptDecrypt.doFinal(masterDerived, (short)0, (short)DEFAULT_SEED_LENGTH, scratch256, (short)0);
         // Derive all components
         i = Bip32Cache.copyPrivateBest(buffer, (short)(ISO7816.OFFSET_CDATA + 1), derivationSize, scratch256, (short)0);
         offset += (short)(i * 4);
         for (; i<derivationSize; i++) {
-        	Util.arrayCopyNonAtomic(buffer, offset, scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
-        	if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
-        		if (!Bip32Cache.setPublicIndex(buffer, (short)(ISO7816.OFFSET_CDATA + 1), i)) {
-        			ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
-        		}
-        	}        	
-        	if (!Bip32.derive(buffer)) {
-        		ISOException.throwIt(ISO7816.SW_WRONG_DATA);
-        	}
-        	Bip32Cache.storePrivate(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1), scratch256);
-        	offset += (short)4;
-        }
+            Util.arrayCopyNonAtomic(buffer, offset, scratch256, Bip32.OFFSET_DERIVATION_INDEX, (short)4);
+            if ((proprietaryAPI == null) && ((scratch256[Bip32.OFFSET_DERIVATION_INDEX] & (byte)0x80) == 0)) {
+                if (!Bip32Cache.setPublicIndex(buffer, (short)(ISO7816.OFFSET_CDATA + 1), i)) {
+                    ISOException.throwIt(SW_PUBLIC_POINT_NOT_AVAILABLE);
+                }
+            }           
+            if (!Bip32.derive(buffer)) {
+                ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+            }
+            Bip32Cache.storePrivate(buffer, (short)(ISO7816.OFFSET_CDATA + 1), (byte)(i + 1), scratch256);
+            offset += (short)4;
+        }        
+    }
+
+    private static void handleHashSign(APDU apdu) throws ISOException {    	
+        byte[] buffer = apdu.getBuffer();
+        short offset = ISO7816.OFFSET_CDATA;
+        byte i;
+    	byte derivationSize = buffer[offset++];
+        offset += (short)(derivationSize * 4);
         short authorizationLength = (short)(buffer[offset++] & 0xff);    
         // Check the PIN if an authorization is necessary
         if (TC.ctxP[TC.P_TX_Z_CONSUME_P2SH] == TC.FALSE) {
@@ -981,9 +996,17 @@ public class LedgerWalletApplet extends Applet implements AppletEvent {
                         handleHashTransaction(apdu);
                         break;
                     case INS_UNTRUSTED_HASH_FINALIZE_FULL:
-                        handleHashOutputFull(apdu);
+                        // Split to avoid a stack overflow on JCOP
+                        if (buffer[ISO7816.OFFSET_P1] == P1_FINALIZE_CHANGEINFO) {
+                            handleHashOutputFullChange(apdu);
+                        }
+                        else {
+                            handleHashOutputFull(apdu);
+                        }
                         break;
                     case INS_UNTRUSTED_HASH_SIGN:
+                        // Split to avoid a stack overflow on JCOP
+                        handleHashSignDerive(apdu);
                         handleHashSign(apdu);
                         break;                   
                     case INS_GET_FIRMWARE_VERSION:
