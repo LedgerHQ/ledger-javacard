@@ -32,6 +32,10 @@ public class SHA512 {
                                                  JCSystem.MEMORY_TYPE_TRANSIENT_DESELECT);
     init();
   }
+  public void uninit() {
+    working = null;
+    blk = null;
+  }
   public byte getAlgorithm() {
     return 0x61;
   }
