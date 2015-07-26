@@ -53,5 +53,22 @@ public interface ProprietaryAPI {
 	 * @param outOffset offset to the result
 	 */
 	public void hmacSHA512(Key key, byte[] in, short inBuffer, short inLength, byte[] out, short outOffset);
+	/**
+	 * Check if deterministic ECDSA SHA-256 signature is supported
+	 * @return true if it's present, otherwise false
+	 */
+	public boolean hasDeterministicECDSASHA256();
+	/**
+	 * Perform a deterministic ECDSA SHA-256 signature
+	 * Non malleability is not guaranteed and should be checked by the host
+	 * (see https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki#low-s-values-in-signatures)
+	 * @param key Private ECC key object provisioned with the signature key
+	 * @param in buffer containing the data to hash and sign
+	 * @param inBuffer offset to the data
+	 * @param inLength length of the data
+	 * @param out buffer that will contain the signature
+	 * @param outOffset offset to the signature
+	 */	
+	public void signDeterministicECDSASHA256(Key key, byte[] in, short inBuffer, short inLength, byte[] out, short outOffset);
 
 }

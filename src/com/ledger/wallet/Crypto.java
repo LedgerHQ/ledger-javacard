@@ -19,6 +19,7 @@
 */    
 package com.ledger.wallet;
 
+import javacard.framework.JCSystem;
 import javacard.framework.Util;
 import javacard.security.CryptoException;
 import javacard.security.DESKey;
@@ -46,6 +47,7 @@ public class Crypto {
 	private static final short HMAC_SHA512_SIZE = (short)(32 * 8);
     
     public static void init() {
+        scratch = JCSystem.makeTransientByteArray((short)1, JCSystem.CLEAR_ON_DESELECT);
         random = RandomData.getInstance(RandomData.ALG_SECURE_RANDOM);
         try {
             // ok, let's save RAM
@@ -86,15 +88,18 @@ public class Crypto {
         	try {
                 // ok, let's save RAM        		
         		keyHmac = (HMACKey)KeyBuilder.buildKey(KeyBuilder.TYPE_HMAC_TRANSIENT_DESELECT, HMAC_SHA512_SIZE, false);
+                keyHmac2 = (HMACKey)KeyBuilder.buildKey(KeyBuilder.TYPE_HMAC_TRANSIENT_DESELECT, HMAC_SHA512_SIZE, false);
         	}
         	catch(CryptoException e) {
         		try {
                     // ok, let's save a bit less RAM        			
         			keyHmac = (HMACKey)KeyBuilder.buildKey(KeyBuilder.TYPE_HMAC_TRANSIENT_RESET, HMAC_SHA512_SIZE, false);
+                    keyHmac2 = (HMACKey)KeyBuilder.buildKey(KeyBuilder.TYPE_HMAC_TRANSIENT_RESET, HMAC_SHA512_SIZE, false);
         		}
         		catch(CryptoException e1) {
                     // ok, let's test the flash wear leveling \o/        			
         			keyHmac = (HMACKey)KeyBuilder.buildKey(KeyBuilder.TYPE_HMAC, HMAC_SHA512_SIZE, false);
+                    keyHmac2 = (HMACKey)KeyBuilder.buildKey(KeyBuilder.TYPE_HMAC, HMAC_SHA512_SIZE, false);
         		}
         	}        	
         }
@@ -115,6 +120,28 @@ public class Crypto {
         }
         catch(CryptoException e) {
         }                
+    }
+
+    public static void uninit() {
+        scratch = null;
+        random = null;
+        transientPrivate = null;
+        digestFull = null;
+        digestAuthorization = null;
+        digestScratch = null;
+        blobEncryptDecrypt = null;
+        signature = null;
+        digestRipemd = null;
+        digestSha512 = null;
+        if (sha512 != null) {
+            sha512.uninit();
+            sha512 = null;
+        }
+        signatureHmac = null;
+        keyHmac = null;
+        keyHmac2 = null;
+        keyAgreement = null;
+        publicKey = null;        
     }
     
     public static void initTransientPrivate(byte[] keyBuffer, short keyOffset) {
@@ -151,14 +178,28 @@ public class Crypto {
     public static void initCipher(DESKey key, boolean encrypt) {
         blobEncryptDecrypt.init(key, (encrypt ? Cipher.MODE_ENCRYPT : Cipher.MODE_DECRYPT), IV_ZERO, (short)0, (short)IV_ZERO.length);
     }
+
+    public static byte getRandomByteModulo(short modulo) {
+        short rng_max = (short)(256 % modulo);
+        short rng_limit = (short)(256 - rng_max);
+        short candidate = (short)0;
+        do {
+            random.generateData(scratch, (short)0, (short)1);
+            candidate = (short)(scratch[0] & 0xff);
+        }
+        while(candidate > rng_limit);
+        return (byte)(candidate % modulo);
+    }
     
     private static final byte[] IV_ZERO = { 0, 0, 0, 0, 0, 0, 0, 0 };
 
+    private static byte[] scratch;
     protected static ECPrivateKey transientPrivate;    
-    private static boolean transientPrivateTransient;    
+    protected static boolean transientPrivateTransient;    
     private static Signature signature;
     protected static Signature signatureHmac;
     protected static HMACKey keyHmac;
+    protected static HMACKey keyHmac2; // duplicated because platforms don't like changing the key size on the fly
     protected static MessageDigest digestFull;
     protected static MessageDigest digestAuthorization;
     protected static MessageDigest digestScratch;

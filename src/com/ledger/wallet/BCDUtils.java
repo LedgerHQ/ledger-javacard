@@ -32,6 +32,10 @@ public class BCDUtils {
     public static void init() {
         scratch = JCSystem.makeTransientShortArray((short)(8 * 8 / 3), JCSystem.CLEAR_ON_DESELECT);
     }
+
+    public static void uninit() {
+        scratch = null;
+    }
     
     private static void doubleDabble(byte[] source, short sourceOffset) {
         for (byte i=0; i<(short)scratch.length; i++) {

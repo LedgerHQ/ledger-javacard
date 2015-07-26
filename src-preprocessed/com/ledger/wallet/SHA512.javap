@@ -397,6 +397,11 @@ public class SHA512 {
     init();
   }
 
+  public void uninit() {
+    working = null;
+    blk = null;
+  }
+
   public byte 	getAlgorithm() {
     return 0x61;
   }

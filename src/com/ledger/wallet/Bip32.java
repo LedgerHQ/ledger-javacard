@@ -40,12 +40,12 @@ public class Bip32 {
 	// if that's the case, power cycle / deselect between initial seed derivation and all other key derivations
 	public static void deriveSeed(byte seedLength) {
 		if (Crypto.signatureHmac != null) {
-			Crypto.keyHmac.setKey(BITCOIN_SEED, (short)0, (short)BITCOIN_SEED.length);
+			Crypto.keyHmac2.setKey(BITCOIN_SEED, (short)0, (short)BITCOIN_SEED.length);
 			if ((LedgerWalletApplet.proprietaryAPI != null) && (LedgerWalletApplet.proprietaryAPI.hasHmacSHA512())) {
-				LedgerWalletApplet.proprietaryAPI.hmacSHA512(Crypto.keyHmac, LedgerWalletApplet.scratch256, (short)0, seedLength, LedgerWalletApplet.masterDerived, (short)0);
+				LedgerWalletApplet.proprietaryAPI.hmacSHA512(Crypto.keyHmac2, LedgerWalletApplet.scratch256, (short)0, seedLength, LedgerWalletApplet.masterDerived, (short)0);
 			}
 			else {
-				Crypto.signatureHmac.init(Crypto.keyHmac, Signature.MODE_SIGN);
+				Crypto.signatureHmac.init(Crypto.keyHmac2, Signature.MODE_SIGN);
 				Crypto.signatureHmac.sign(LedgerWalletApplet.scratch256, (short)0, seedLength, LedgerWalletApplet.masterDerived, (short)0);
 			}
 		}

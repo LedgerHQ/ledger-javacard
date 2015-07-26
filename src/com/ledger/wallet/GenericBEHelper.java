@@ -30,13 +30,13 @@ import javacard.framework.ISOException;
  */
 public class GenericBEHelper {
             
-    public static boolean isZero(byte size, byte[] buffer, short offset) {
-        for (byte i=0; i<size; i++) {
+    public static boolean isEqualByte(byte size, byte[] buffer, short offset, byte value) {
+        for (byte i=0; i<(byte)(size - 1); i++) {
             if (buffer[(short)(offset + i)] != 0) {
                 return false;
             }
         }
-        return true;        
+        return (buffer[(short)(offset + size - 1)] == value);
     }
     
     public static void swap(byte size, byte[] target, short targetOffset, byte[] a, short aOffset) {

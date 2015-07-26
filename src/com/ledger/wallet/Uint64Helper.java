@@ -49,7 +49,8 @@ public class Uint64Helper {
         GenericBEHelper.swap((byte)8, target, targetOffset, a, aOffset);
     }
     
-    public static boolean isZero(byte[] a, short aOffset) {
-        return GenericBEHelper.isZero((byte)8, a, aOffset);
+    public static boolean isEqualByte(byte[] buffer, short offset, byte value) {
+        return GenericBEHelper.isEqualByte((byte)8, buffer, offset, value);
     }
+
 }

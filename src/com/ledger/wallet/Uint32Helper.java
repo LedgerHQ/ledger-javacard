@@ -55,8 +55,8 @@ public class Uint32Helper {
         buffer[(short)(offset + 3)] = ll;
     }
     
-    public static boolean isZero(byte[] buffer, short offset) {
-        return GenericBEHelper.isZero((byte)4, buffer, offset);
+    public static boolean isEqualByte(byte[] buffer, short offset, byte value) {
+        return GenericBEHelper.isEqualByte((byte)4, buffer, offset, value);
     }
     
     public static void increase(byte[] buffer, short offset) {

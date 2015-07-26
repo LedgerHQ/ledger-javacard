@@ -22,6 +22,7 @@ package com.ledger.wallet;
 
 import javacard.framework.APDU;
 import javacard.framework.Applet;
+import javacard.framework.AppletEvent;
 import javacard.framework.ISO7816;
 import javacard.framework.ISOException;
 import javacard.framework.JCSystem;
@@ -48,6 +49,11 @@ public class LWNFCForumApplet extends Applet {
         Util.arrayCopyNonAtomic(LANG, (short)0, FILE_DATA, offset, (short)LANG.length);                        
         LedgerWalletApplet.writeIdleText();
         created = true;
+    }
+
+    public void uninstall() {
+        scratch = null;
+        FILE_DATA = null;
     }
     
     public static void writeHeader(short textSize) {
