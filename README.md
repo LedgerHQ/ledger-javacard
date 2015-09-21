@@ -1,5 +1,5 @@
-Ledger Wallet Java Card applet
-==============================
+Ledger Unplugged - Open Source Java Card applet
+===============================================
 
 # Overview
 
@@ -14,6 +14,14 @@ Several other integration examples are provided on [Ledger Unplugged product pag
 Developers can also check if a Java Card platform is supported and its performance with the [Eligibility applet](https://github.com/ledgerhq/ledger-javacard-eligibility)
 
 All applet code is provided under the [GNU Affero General Public License v3](http://www.gnu.org/licenses/agpl-3.0.html) - for any question or commercial licensing, reach us at hello@ledger.fr
+
+# Differences with Ledger Unplugged commercial versions
+
+[Ledger Unplugged](https://www.ledgerwallet.com/products/6-ledger-unplugged) sold by Ledger on the Fidesmo platform or [downloaded on a Fidesmo enabled device](https://play.google.com/store/apps/details?id=com.fidesmo.sec.android) includes an NXP implementation of the [ProprietaryAPI interface](https://github.com/LedgerHQ/ledger-javacard/blob/master/src/com/ledger/wallet/ProprietaryAPI.java) which is only available under NDA, providing better performance regarding the speed of cryptographic operations.
+
+Users are free to switch between the commercial version and their own version compiled from those sources, after deleting it.
+
+The commercial version is also provisioned with an attestation key pair signed by a shared Ledger public key (see below) allowing a third party to check for genuine applications.
 
 # Building
 
@@ -122,3 +130,8 @@ You'll need to rebuild a version of [Ledger Wallet application](https://github.c
 
 Mycelium supports natively custom built versions of the application - just specify your instance AID in the Settings menu on the Ledger options group.
 
+# Ledger public key
+
+Each unique attestation public key is signed by the following Ledger public key on SECp256k1 for official applications
+
+	045f68bcd470ba883aa646d90fd8cfee7ac3208e3a1e926bd6895eba5ae22bcd96ddeba7dfe25c7cec546f0f425b9d737de47302bf604f33fa5097a9992b4baf06
