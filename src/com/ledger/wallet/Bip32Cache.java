@@ -54,21 +54,6 @@ public class Bip32Cache {
 		}
 		lastCacheIndex = JCSystem.makeTransientByteArray((short)1, JCSystem.CLEAR_ON_DESELECT);
 	}
-
-	public void uninitItem() {
-		privateComponent = null;
-		publicComponent = null;
-		path = null;
-	}
-
-	public static void uninit() {
-		for (short i=0; i<CACHE_SIZE; i++) {
-			cache[i].uninitItem();
-			cache[i] = null;
-		}		
-		cache = null;
-		lastCacheIndex = null;
-	}
 	
 	public static void reset() {
 		for (short i=0; i<CACHE_SIZE; i++) {

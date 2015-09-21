@@ -106,6 +106,4 @@ public class JCardSIMProprietaryAPI implements ProprietaryAPI {
         signature.init(key, Signature.MODE_SIGN);
         signature.sign(in, inBuffer, inLength, out, outOffset);				
 	}
-
 }
-

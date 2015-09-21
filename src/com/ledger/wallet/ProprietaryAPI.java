@@ -70,5 +70,4 @@ public interface ProprietaryAPI {
 	 * @param outOffset offset to the signature
 	 */	
 	public void signDeterministicECDSASHA256(Key key, byte[] in, short inBuffer, short inLength, byte[] out, short outOffset);
-
 }

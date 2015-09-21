@@ -50,11 +50,6 @@ public class LWNFCForumApplet extends Applet {
         LedgerWalletApplet.writeIdleText();
         created = true;
     }
-
-    public void uninstall() {
-        scratch = null;
-        FILE_DATA = null;
-    }
     
     public static void writeHeader(short textSize) {
         short offset = (short)0;

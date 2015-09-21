@@ -59,7 +59,7 @@ public abstract class AbstractTest extends TestCase {
 	protected Simulator simulator;
 
 	protected Simulator prepareSimulator() {
-		byte[] parameters = new byte[INSTANCE_AID_DATA.length + 1];
+		byte[] parameters = new byte[INSTANCE_AID_DATA.length + 3];
 		parameters[0] = (byte)INSTANCE_AID_DATA.length;
 		System.arraycopy(INSTANCE_AID_DATA, 0, parameters, 1, INSTANCE_AID_DATA.length);
 		Simulator tmpSimulator = new Simulator();

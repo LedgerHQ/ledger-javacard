@@ -48,6 +48,11 @@ public class Uint32Helper {
         buffer[(short)(offset + 3)] = low;
     }
 
+    public static void setShort(byte[] buffer, short offset, short value) {
+        clear(buffer, offset);
+        Util.setShort(buffer, (short)(offset + 2), value);
+    }
+
     public static void setInt(byte[] buffer, short offset, byte hh, byte hl, byte lh, byte ll) {
         buffer[offset] = hh;
         buffer[(short)(offset + 1)] = hl;

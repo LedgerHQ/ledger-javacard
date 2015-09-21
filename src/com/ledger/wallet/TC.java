@@ -34,29 +34,32 @@ public class TC {
         ctx = JCSystem.makeTransientByteArray(TX_CONTEXT_SIZE, JCSystem.CLEAR_ON_DESELECT);
         ctxP = new byte[P_TX_CONTEXT_SIZE];
     }
-
-    public static void uninit() {
-        ctx = null;
-        ctxP = null;
-    }
     
     public static void clear() {
         Util.arrayFillNonAtomic(ctx, (short)0, (short)ctx.length, (byte)0x00);
     }
     
     protected static final byte SIZEOF_U32 = 4;
+    protected static final byte SIZEOF_U16 = 2;
     protected static final byte SIZEOF_U8 = 1;
     protected static final byte SIZEOF_AMOUNT = 8;
     protected static final byte SIZEOF_NONCE = 8;
     protected static final byte SIZEOF_SHA256 = 32;
     protected static final byte SIZEOF_RIPEMD = 20;
     protected static final byte MAX_KEYCARD_DIGIT_ADDRESS = 10;
+    protected static final byte SIZEOF_BIP70_STACK_ITEM = (SIZEOF_U8 + SIZEOF_U8 + SIZEOF_U16);
+    protected static final byte MAX_BIP70_STACK = (byte)3;
+
+    protected static final byte BIP70_STACK_B_TAG = (byte)0;
+    protected static final byte BIP70_STACK_B_WIRETYPE = (byte)(BIP70_STACK_B_TAG + SIZEOF_U8);
+    protected static final byte BIP70_STACK_S_REMAINING = (byte)(BIP70_STACK_B_WIRETYPE + SIZEOF_U8);
     
     protected static final byte TRUE = (byte)0x37;
     protected static final byte FALSE = (byte)0xda;
     
-    protected static final short TX_B_HASH_OPTION = (short)0;
-    protected static final short TX_B_TRUSTED_INPUT_PROCESSED = (short)(TX_B_HASH_OPTION + SIZEOF_U8); 
+    protected static final short TX_B_HASH_OPTION = (short)0;    
+    protected static final short TX_B_MESSAGE_SIGN_READY = (short)(TX_B_HASH_OPTION + SIZEOF_U8);
+    protected static final short TX_B_TRUSTED_INPUT_PROCESSED = (short)(TX_B_MESSAGE_SIGN_READY + SIZEOF_U8); 
     protected static final short TX_I_TRANSACTION_TARGET_INPUT = (short)(TX_B_TRUSTED_INPUT_PROCESSED + SIZEOF_U8); 
     protected static final short TX_I_REMAINING_IO = (short)(TX_I_TRANSACTION_TARGET_INPUT + SIZEOF_U32);
     protected static final short TX_I_CURRENT_IO = (short)(TX_I_REMAINING_IO + SIZEOF_U32);
@@ -71,7 +74,12 @@ public class TC {
     protected static final short TX_A_FEE_AMOUNT = (short)(TX_A_OUTPUT_AMOUNT + SIZEOF_AMOUNT);
     protected static final short TX_A_CHANGE_AMOUNT = (short)(TX_A_FEE_AMOUNT + SIZEOF_AMOUNT);  
     protected static final short TX_A_CHANGE_ADDRESS = (short)(TX_A_CHANGE_AMOUNT + SIZEOF_AMOUNT);
-    protected static final short TX_CONTEXT_SIZE = (short)(TX_A_CHANGE_ADDRESS + SIZEOF_RIPEMD + 1);
+    // BIP 70 parsing context
+    protected static final short BIP70_Z_ACTION = (short)(TX_A_CHANGE_ADDRESS + SIZEOF_RIPEMD + 1);
+    protected static final short BIP70_B_STACK_INDEX = (short)(BIP70_Z_ACTION + SIZEOF_U8);
+    protected static final short BIP70_B_PARSED_ITEMS_MASK = (short)(BIP70_B_STACK_INDEX + SIZEOF_U8);
+    protected static final short BIP70_Z_STACK = (short)(BIP70_B_PARSED_ITEMS_MASK + SIZEOF_U8);
+    protected static final short TX_CONTEXT_SIZE = (short)(BIP70_Z_STACK + (MAX_BIP70_STACK * SIZEOF_BIP70_STACK_ITEM));
     
     protected static final short P_TX_Z_WIRED = (short)0;
     protected static final short P_TX_Z_RELAXED = (short)(P_TX_Z_WIRED + SIZEOF_U8); 

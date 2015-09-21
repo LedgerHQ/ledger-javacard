@@ -33,10 +33,6 @@ public class Transaction {
     public static void init() {
         h = JCSystem.makeTransientShortArray((short)2, JCSystem.CLEAR_ON_DESELECT);
     }
-
-    public static void uninit() {
-        h = null;
-    }
     
     private static void consumeTransaction(byte buffer[], short length) {
         if ((TC.ctx[TC.TX_B_HASH_OPTION] & HASH_FULL) != 0) {

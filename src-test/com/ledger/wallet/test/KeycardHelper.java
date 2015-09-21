@@ -57,10 +57,18 @@ public class KeycardHelper {
 		for (int i=0; i<indexes.length; i++) {
 			short addressCode = (short)((short)(addressBin[indexes[i]] & 0xff) - 0x30);
 			result[i] = keycard[addressCode];
-			System.out.println("Checker index " + indexes[i] + " addressCode " + addressCode + " result " + result[i]);
 		}
 		return result;
 	}
+
+	public byte[] getPIN(byte[] indexes) {
+		byte[] result = new byte[indexes.length];
+		for (int i=0; i<indexes.length; i++) {
+			result[i] = keycard[indexes[i]];
+		}
+		return result;
+	}
+
 
 	public byte[] getKeycard() {
 		return keycard;

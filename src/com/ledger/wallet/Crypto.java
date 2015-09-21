@@ -23,6 +23,7 @@ import javacard.framework.JCSystem;
 import javacard.framework.Util;
 import javacard.security.CryptoException;
 import javacard.security.DESKey;
+import javacard.security.AESKey;
 import javacard.security.ECKey;
 import javacard.security.ECPrivateKey;
 import javacard.security.ECPublicKey;
@@ -112,6 +113,7 @@ public class Crypto {
         }
         catch(CryptoException e) {
         	// Not having the KeyAgreement API is manageable if there is a proprietary API to recover public keys
+            // and if the airgapped personalization can be skipped
         	// Otherwise there should be a remote secure oracle performing public derivations and sending back results
         }
         try {
@@ -120,28 +122,20 @@ public class Crypto {
         }
         catch(CryptoException e) {
         }                
-    }
-
-    public static void uninit() {
-        scratch = null;
-        random = null;
-        transientPrivate = null;
-        digestFull = null;
-        digestAuthorization = null;
-        digestScratch = null;
-        blobEncryptDecrypt = null;
-        signature = null;
-        digestRipemd = null;
-        digestSha512 = null;
-        if (sha512 != null) {
-            sha512.uninit();
-            sha512 = null;
+        try {
+                keyPair = new KeyPair(
+                        (ECPublicKey)KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PUBLIC, KeyBuilder.LENGTH_EC_FP_256, false),
+                        (ECPrivateKey)KeyBuilder.buildKey(KeyBuilder.TYPE_EC_FP_PRIVATE, KeyBuilder.LENGTH_EC_FP_256, false));
+                Secp256k1.setCommonCurveParameters((ECKey)keyPair.getPrivate());
+                Secp256k1.setCommonCurveParameters((ECKey)keyPair.getPublic());
         }
-        signatureHmac = null;
-        keyHmac = null;
-        keyHmac2 = null;
-        keyAgreement = null;
-        publicKey = null;        
+        catch(CryptoException e) {            
+        }
+        try {
+            blobEncryptDecryptAES = Cipher.getInstance(Cipher.ALG_AES_BLOCK_128_CBC_NOPAD, false);
+        }
+        catch(CryptoException e) {            
+        }
     }
     
     public static void initTransientPrivate(byte[] keyBuffer, short keyOffset) {
@@ -179,6 +173,10 @@ public class Crypto {
         blobEncryptDecrypt.init(key, (encrypt ? Cipher.MODE_ENCRYPT : Cipher.MODE_DECRYPT), IV_ZERO, (short)0, (short)IV_ZERO.length);
     }
 
+    public static void initCipherAES(AESKey key, boolean encrypt) {
+        blobEncryptDecryptAES.init(key, (encrypt ? Cipher.MODE_ENCRYPT : Cipher.MODE_DECRYPT), IV_ZERO_AES, (short)0, (short)IV_ZERO_AES.length);
+    }
+
     public static byte getRandomByteModulo(short modulo) {
         short rng_max = (short)(256 % modulo);
         short rng_limit = (short)(256 - rng_max);
@@ -192,11 +190,12 @@ public class Crypto {
     }
     
     private static final byte[] IV_ZERO = { 0, 0, 0, 0, 0, 0, 0, 0 };
+    private static final byte[] IV_ZERO_AES = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
     private static byte[] scratch;
     protected static ECPrivateKey transientPrivate;    
     protected static boolean transientPrivateTransient;    
-    private static Signature signature;
+    protected static Signature signature;
     protected static Signature signatureHmac;
     protected static HMACKey keyHmac;
     protected static HMACKey keyHmac2; // duplicated because platforms don't like changing the key size on the fly
@@ -207,10 +206,13 @@ public class Crypto {
     protected static MessageDigest digestSha512;
     protected static SHA512 sha512;
     protected static RandomData random;
-    protected static Cipher blobEncryptDecrypt;
-    
+    protected static Cipher blobEncryptDecrypt;    
+    protected static Cipher blobEncryptDecryptAES;
+
+    protected static KeyAgreement keyAgreement;
+    protected static KeyPair keyPair;
     
     // following variables are only used if no proprietary API is available
     protected static ECPublicKey publicKey; 
-    protected static KeyAgreement keyAgreement;
+    
 }
