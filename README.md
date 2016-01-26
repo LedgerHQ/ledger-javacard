@@ -27,6 +27,8 @@ The commercial version is also provisioned with an attestation key pair signed b
 
 Due to heavy optimizations using a C preprocessor, building is currently recommended on a Unix platform or with MinGW on Windows. Pre built files are provided for reference only.
 
+If you don't need to rebuild the preprocessed files, you can use an automated build with Ant. Otherwise, keep reading. 
+
 First download a recent Java Card SDK (at least 3.0.1) from [Oracle](http://www.oracle.com) and install it
 
 Then choose a building script - if building for an NFC only platform, build-no-ndef.sh is recommended. If you wish to test the NDEF second factor (typically on a platform supporting both NFC and a different interface), you can use build.sh instead
