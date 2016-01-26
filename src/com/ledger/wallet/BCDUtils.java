@@ -48,14 +48,14 @@ public class BCDUtils {
                 if (scratch[smin] >= 8) {
                     smin -= 1;
                 }
-                for (byte k=smin; k < nscratch - 1; k++) {
+                for (byte k=smin; k < (short)(nscratch - 1); k++) {
                     scratch[k] <<= 1;
                     scratch[k] &= 0x0f;
-                    scratch[k] |= ((scratch[k + 1] >= 8) ? 1 : 0);
+                    scratch[k] |= ((scratch[(short)(k + 1)] >= 8) ? 1 : 0);
                 }
-                scratch[nscratch - 1] <<= 1;
-                scratch[nscratch - 1] &= 0x0f;
-                scratch[nscratch - 1] |= (shifted_in == 1 ? 1 : 0);
+                scratch[(short)(nscratch - 1)] <<= 1;
+                scratch[(short)(nscratch - 1)] &= 0x0f;
+                scratch[(short)(nscratch - 1)] |= (shifted_in == 1 ? 1 : 0);
             }
         }
     }

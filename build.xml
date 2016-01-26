@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project basedir="." default="applet" name="ledger-javacard">
+  <get src="https://github.com/martinpaljak/ant-javacard/releases/download/v1.5/ant-javacard.jar" skipexisting="true" dest="."/>
+  <taskdef name="javacard" classname="pro.javacard.ant.JavaCard" classpath="ant-javacard.jar"/>
+  <target name="applet-ndef" if="ndef">
+    <javacard>
+      <cap output="Ledger-wallet-ndef.cap" sources="src" classes="tmp" aid="FF:4C:45:47:52:2E:57:41:4C:54:30:31" verify="true">
+        <applet class="com.ledger.wallet.LedgerWalletApplet" aid="FF:4C:45:47:52:2E:57:41:4C:54:30:31:2E:49:30:31"/>
+        <applet class="com.ledger.wallet.LWNFCForumApplet" aid="FF:4C:45:47:52:2E:57:41:4C:54:30:31:2E:49:30:32"/>
+      </cap>
+    </javacard>
+  </target>
+  <target name="applet" depends="applet-ndef">
+    <javacard>
+      <cap output="Ledger-wallet.cap" sources="src" classes="tmp" aid="FF:4C:45:47:52:2E:57:41:4C:54:30:31" verify="true">
+        <applet class="com.ledger.wallet.LedgerWalletApplet" aid="FF:4C:45:47:52:2E:57:41:4C:54:30:31:2E:49:30:31"/>
+      </cap>
+    </javacard>
+  </target>
+</project>
