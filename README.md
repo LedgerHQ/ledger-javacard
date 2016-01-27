@@ -41,7 +41,7 @@ Finally run the build script to generate a loadable .cap file in the build/ dire
 
 ## Installing on a generic Java Card platform
 
-Installation can be done using a standard method such as [GPShell](http://sourceforge.net/p/globalplatform/wiki/Home/)
+Installation can be done using global platform tools such as [GlobalPlatformPro](https://github.com/martinpaljak/GlobalPlatformPro) or [GPShell](http://sourceforge.net/p/globalplatform/wiki/Home/)
 
 Specific optional installation parameters are described in the [Java Card application specification](https://ledgerhq.github.io/btchip-doc/bitcoin-javacard.html#_installation_parameters)
 
